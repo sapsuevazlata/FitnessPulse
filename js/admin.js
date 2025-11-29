@@ -1,15 +1,20 @@
 class AdminManager {
     constructor() {
-        this.token = Auth.getToken();
         this.API_BASE_URL = 'http://localhost:3000/api';
         this.trainers = [];
     }
 
     getAuthHeaders() {
-        return {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.token}`
+        const token = Auth.getToken();
+        const headers = {
+            'Content-Type': 'application/json'
         };
+
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        return headers;
     }
 
     init() {
@@ -108,7 +113,7 @@ class AdminManager {
             console.log('Загрузка тренеров...');
             const url = this.API_BASE_URL + '/trainers';
             console.log('URL запроса:', url);
-            console.log('Токен:', this.token ? 'Есть' : 'Нет');
+            console.log('Токен:', Auth.getToken() ? 'Есть' : 'Нет');
             
             const response = await fetch(url, {
                 headers: this.getAuthHeaders()

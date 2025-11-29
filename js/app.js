@@ -5,8 +5,14 @@ class FitnessApp {
 
     init() {
         this.bindEvents();
-        this.showSection('home');
         this.checkAuthState();
+        
+        // Инициализируем navigationManager
+        if (window.navigationManager) {
+            window.navigationManager.init();
+        } else {
+            this.showSection('home');
+        }
     }
 
     bindEvents() {
@@ -161,55 +167,29 @@ class FitnessApp {
 
     redirectIfAuthenticated() {
         if (this.currentUser) {
-            const currentPage = window.location.pathname;
-            if (currentPage.endsWith('index.html') || currentPage === '/') {
-                setTimeout(() => {
-                    this.redirectByRole(this.currentUser);
-                }, 1000);
+            // Обновляем интерфейс для авторизованного пользователя
+            if (window.navigationManager) {
+                window.navigationManager.refresh();
+                const defaultSection = this.currentUser.role === 'guest' ? 'home' : 'dashboard';
+                window.navigationManager.showSection(defaultSection);
             }
             this.protectPages();
         }
     }
 
     protectPages() {
-        const currentPage = window.location.pathname;
-        
-        if (currentPage.includes('admin-dashboard') && this.currentUser.role !== 'admin') {
-            this.redirectByRole(this.currentUser);
-            return;
-        }
-        
-        if (currentPage.includes('trainer-dashboard') && this.currentUser.role !== 'trainer') {
-            this.redirectByRole(this.currentUser);
-            return;
-        }
-        
-        if (currentPage.includes('client-profile') && this.currentUser.role !== 'client') {
-            this.redirectByRole(this.currentUser);
-            return;
-        }
+        // Больше не нужно проверять страницы, так как все в одном файле
+        // NavigationManager сам управляет доступом к секциям
     }
 
     redirectByRole(user) {
-        console.log('🔄 Перенаправление пользователя:', user);
+        console.log('🔄 Обновление интерфейса для пользователя:', user);
         
-        switch(user.role) {
-            case 'admin':
-                if (!window.location.pathname.includes('admin-dashboard')) {
-                    window.location.href = 'admin-dashboard.html';
-                }
-                break;
-            case 'trainer':
-                if (!window.location.pathname.includes('trainer-dashboard')) {
-                    window.location.href = 'trainer-dashboard.html';
-                }
-                break;
-            case 'client':
-            default:
-                if (!window.location.pathname.includes('client-profile')) {
-                    window.location.href = 'client-profile.html';
-                }
-                break;
+        // Используем navigationManager вместо редиректа
+        if (window.navigationManager) {
+            window.navigationManager.refresh();
+            const defaultSection = user.role === 'guest' ? 'home' : 'dashboard';
+            window.navigationManager.showSection(defaultSection);
         }
     }
 

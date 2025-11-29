@@ -1,48 +1,90 @@
 class AdminScheduleManager {
     constructor() {
-        this.token = Auth.getToken();
         this.API_BASE_URL = 'http://localhost:3000/api';
         this.trainers = [];
+        this.trainerSchedule = [];
+        this.scheduleMap = {};
+        this.currentTrainerId = null;
+        this.initialized = false;
+        this.days = [
+            { key: 'monday', label: 'Понедельник', short: 'Пн' },
+            { key: 'tuesday', label: 'Вторник', short: 'Вт' },
+            { key: 'wednesday', label: 'Среда', short: 'Ср' },
+            { key: 'thursday', label: 'Четверг', short: 'Чт' },
+            { key: 'friday', label: 'Пятница', short: 'Пт' },
+            { key: 'saturday', label: 'Суббота', short: 'Сб' },
+            { key: 'sunday', label: 'Воскресенье', short: 'Вс' }
+        ];
+        this.hours = this.generateHours(7, 21);
+    }
+
+    generateHours(start = 7, end = 21) {
+        const hours = [];
+        for (let h = start; h <= end; h++) {
+            hours.push(`${h.toString().padStart(2, '0')}:00`);
+        }
+        return hours;
     }
 
     getAuthHeaders() {
-        return {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.token}`
+        const token = Auth.getToken();
+        const headers = {
+            'Content-Type': 'application/json'
         };
+
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        return headers;
     }
 
-    init() {
-        console.log('🔧 Инициализация управления расписанием тренеров...');
+    async init() {
+        if (this.initialized) {
+            this.renderGrid();
+            this.renderTrainerSchedule(this.trainerSchedule);
+            return;
+        }
+
+        this.initialized = true;
         this.bindEvents();
-        this.loadTrainerSchedule();
-        this.loadTrainers();
+
+        await Promise.all([this.loadTrainers(), this.loadTrainerSchedule()]);
+        this.populateTrainerPicker();
+        this.renderTrainerSchedule(this.trainerSchedule);
     }
 
     bindEvents() {
-        const scheduleForm = document.getElementById('trainer-schedule-form');
-        if (scheduleForm) {
-            scheduleForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                this.saveTrainerSchedule(scheduleForm);
+        const saveBtn = document.getElementById('save-trainer-schedule-btn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => this.saveCurrentSchedule());
+        }
+
+        const clearBtn = document.getElementById('clear-schedule-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => this.clearCurrentSchedule());
+        }
+
+        const picker = document.getElementById('schedule-trainer-picker');
+        if (picker) {
+            picker.addEventListener('change', (event) => {
+                const trainerId = event.target.value;
+                this.selectTrainer(trainerId);
             });
         }
 
-        document.querySelectorAll('.close').forEach(closeBtn => {
-            closeBtn.addEventListener('click', () => this.closeModals());
-        });
+        this.gridWrapper = document.getElementById('trainer-schedule-grid');
+        if (this.gridWrapper) {
+            this.gridWrapper.addEventListener('click', (event) => {
+                const slotButton = event.target.closest('.slot-cell');
+                if (!slotButton || !this.currentTrainerId) {
+                    return;
+                }
 
-        window.addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal')) {
-                this.closeModals();
-            }
-        });
-
-        const startTimeInput = document.getElementById('schedule-start-time');
-        const endTimeInput = document.getElementById('schedule-end-time');
-        if (startTimeInput && endTimeInput) {
-            startTimeInput.addEventListener('change', () => this.validateTime());
-            endTimeInput.addEventListener('change', () => this.validateTime());
+                const day = slotButton.dataset.day;
+                const hour = slotButton.dataset.hour;
+                this.toggleSlot(day, hour, slotButton);
+            });
         }
     }
 
@@ -51,15 +93,18 @@ class AdminScheduleManager {
             const response = await fetch(this.API_BASE_URL + '/admin/trainer-schedule', {
                 headers: this.getAuthHeaders()
             });
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            
+
             const data = await response.json();
-            
+
             if (data.success) {
-                this.renderTrainerSchedule(data.schedule);
+                this.trainerSchedule = data.schedule || [];
+                this.buildScheduleMap(this.trainerSchedule);
+                this.renderTrainerSchedule(this.trainerSchedule);
+                this.renderGrid();
             } else {
                 this.showNotification('Ошибка загрузки расписания', 'error');
             }
@@ -67,6 +112,35 @@ class AdminScheduleManager {
             console.error('Ошибка загрузки расписания:', error);
             this.showNotification('Ошибка загрузки расписания', 'error');
         }
+    }
+
+    buildScheduleMap(schedule) {
+        this.scheduleMap = {};
+
+        schedule.forEach(slot => {
+            const trainerId = String(slot.trainer_id);
+            if (!this.scheduleMap[trainerId]) {
+                this.scheduleMap[trainerId] = this.createEmptyDayMap();
+            }
+            const hour = slot.start_time.substring(0, 5);
+            this.scheduleMap[trainerId][slot.day_of_week].add(hour);
+        });
+    }
+
+    createEmptyDayMap() {
+        const map = {};
+        this.days.forEach(day => {
+            map[day.key] = new Set();
+        });
+        return map;
+    }
+
+    ensureTrainerMap(trainerId) {
+        const key = String(trainerId);
+        if (!this.scheduleMap[key]) {
+            this.scheduleMap[key] = this.createEmptyDayMap();
+        }
+        return this.scheduleMap[key];
     }
 
     renderTrainerSchedule(schedule) {
@@ -77,9 +151,6 @@ class AdminScheduleManager {
             container.innerHTML = `
                 <div class="empty-schedule">
                     <p>Расписание тренеров не настроено</p>
-                    <button class="btn btn-primary" onclick="adminScheduleManager.openCreateScheduleModal()">
-                        Добавить расписание
-                    </button>
                 </div>
             `;
             return;
@@ -102,14 +173,14 @@ class AdminScheduleManager {
                 <h3>Расписание тренеров</h3>
             </div>
             <div class="trainers-schedule-grid">
-                ${Object.entries(trainersMap).map(([trainerId, trainer]) => `
+                ${Object.values(trainersMap).map((trainer) => `
                     <div class="trainer-schedule-card">
                         <div class="trainer-header">
                             <h4>${trainer.name}</h4>
                             <span class="specialization">${trainer.specialization || 'Специализация не указана'}</span>
                             <div class="schedule-stats">
-                                <span class="stat">${this.getDaysCount(trainer.slots)}/3 дней в неделю</span>
-                                <span class="stat">${this.getDailyHours(trainer.slots)}/5 часов в день</span>
+                                <span class="stat">${this.getDaysCount(trainer.slots)} дней</span>
+                                <span class="stat">${this.getTotalHours(trainer.slots)} часов</span>
                             </div>
                         </div>
                         <div class="schedule-slots">
@@ -126,22 +197,8 @@ class AdminScheduleManager {
         return uniqueDays.size;
     }
 
-    getDailyHours(slots) {
-        const hoursByDay = {};
-        slots.forEach(slot => {
-            const start = new Date(`2000-01-01T${slot.start_time}`);
-            const end = new Date(`2000-01-01T${slot.end_time}`);
-            const duration = (end - start) / (1000 * 60 * 60);
-            
-            if (!hoursByDay[slot.day_of_week]) {
-                hoursByDay[slot.day_of_week] = 0;
-            }
-            hoursByDay[slot.day_of_week] += duration;
-        });
-
-        const totalHours = Object.values(hoursByDay).reduce((sum, hours) => sum + hours, 0);
-        const avgHours = totalHours / Object.keys(hoursByDay).length;
-        return avgHours.toFixed(1);
+    getTotalHours(slots) {
+        return slots.length;
     }
 
     renderTrainerSlots(slots) {
@@ -163,7 +220,7 @@ class AdminScheduleManager {
 
         return `
             <div class="weekly-schedule">
-                ${Object.entries(days).map(([dayKey, day]) => `
+                ${Object.values(days).map((day) => `
                     <div class="day-column ${day.slots.length > 0 ? 'has-slots' : 'no-slots'}">
                         <div class="day-header">${day.name}</div>
                         <div class="day-slots">
@@ -179,32 +236,15 @@ class AdminScheduleManager {
     renderScheduleSlot(slot) {
         const startTime = slot.start_time.substring(0, 5);
         const endTime = slot.end_time.substring(0, 5);
-        const duration = this.calculateDuration(slot.start_time, slot.end_time);
         
         return `
             <div class="schedule-slot personal">
-                <div class="slot-time">${startTime}-${endTime}</div>
-                <div class="slot-duration">${duration}ч</div>
-                <div class="slot-type-badge">Индивидуальная</div>
+                <div class="slot-time">${startTime} — ${endTime}</div>
                 <div class="slot-info">
-                    <span class="slots-count">${slot.max_slots} мест</span>
-                </div>
-                <div class="slot-actions">
-                    <button class="btn btn-sm btn-outline" onclick="adminScheduleManager.editScheduleSlot(${slot.id})">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="btn btn-sm btn-danger" onclick="adminScheduleManager.deleteScheduleSlot(${slot.id})">
-                        <i class="fas fa-trash"></i>
-                    </button>
+                    <span class="slot-type-badge">1 час</span>
                 </div>
             </div>
         `;
-    }
-
-    calculateDuration(startTime, endTime) {
-        const start = new Date(`2000-01-01T${startTime}`);
-        const end = new Date(`2000-01-01T${endTime}`);
-        return ((end - start) / (1000 * 60 * 60)).toFixed(1);
     }
 
     async loadTrainers() {
@@ -212,200 +252,295 @@ class AdminScheduleManager {
             const response = await fetch(this.API_BASE_URL + '/trainers', {
                 headers: this.getAuthHeaders()
             });
-            
+
             const data = await response.json();
-            
+
             if (data.success) {
-                this.trainers = data.trainers;
-                console.log('👥 Загружены тренеры:', this.trainers);
+                this.trainers = data.trainers || [];
             }
         } catch (error) {
             console.error('Ошибка загрузки тренеров:', error);
         }
     }
 
-    openCreateScheduleModal() {
-        const modal = document.getElementById('create-trainer-schedule-modal');
-        if (modal) {
-            modal.style.display = 'block';
-            const form = document.getElementById('trainer-schedule-form');
-            form.reset();
-            form.dataset.mode = 'create';
-            document.getElementById('schedule-modal-title').textContent = 'Добавить расписание тренера';
-            
-            this.populateScheduleTrainerSelect();
-        }
-    }
-
-    populateScheduleTrainerSelect(selectedTrainerId = null) {
-        const select = document.getElementById('schedule-trainer-select');
-        if (!select) {
-            console.error('select для тренеров расписания не найден');
-            return;
-        }
+    populateTrainerPicker() {
+        const select = document.getElementById('schedule-trainer-picker');
+        if (!select) return;
 
         if (!this.trainers || this.trainers.length === 0) {
             select.innerHTML = '<option value="">Нет доступных тренеров</option>';
-            return;
-        }
-        
-        select.innerHTML = '<option value="">Выберите тренера</option>' +
-            this.trainers
-                .filter(trainer => trainer.is_active)
-                .map(trainer => `
-                    <option value="${trainer.id}" ${trainer.id == selectedTrainerId ? 'selected' : ''}>
-                        ${trainer.name} - ${trainer.specialization || 'Без специализации'}
-                    </option>
-                `).join('');
-    }
-
-    validateTime() {
-        const startTimeInput = document.getElementById('schedule-start-time');
-        const endTimeInput = document.getElementById('schedule-end-time');
-        
-        if (!startTimeInput.value || !endTimeInput.value) return;
-
-        const startTime = new Date(`2000-01-01T${startTimeInput.value}`);
-        const endTime = new Date(`2000-01-01T${endTimeInput.value}`);
-        const duration = (endTime - startTime) / (1000 * 60 * 60);
-
-        if (duration < 5) {
-            this.showNotification('Продолжительность тренировки должна быть не менее 5 часов', 'warning');
-        }
-    }
-
-    async saveTrainerSchedule(form) {
-        console.log('Сохраняем расписание тренера...');
-        
-        const mode = form.dataset.mode;
-        const slotId = form.dataset.slotId;
-        
-        const formData = new FormData(form);
-        
-        const startTime = formData.get('start_time');
-        const endTime = formData.get('end_time');
-        
-        if (startTime && endTime) {
-            const start = new Date(`2000-01-01T${startTime}`);
-            const end = new Date(`2000-01-01T${endTime}`);
-            const durationHours = (end - start) / (1000 * 60 * 60);
-            
-            console.log(`⏱️ Продолжительность: ${durationHours} часов`);
-            
-            if (durationHours < 5) {
-                this.showNotification('Продолжительность тренировки должна быть не менее 5 часов', 'error');
-                return;
-            }
-        }
-
-        const data = {
-            trainer_id: parseInt(formData.get('trainer_id')),
-            day_of_week: formData.get('day_of_week'),
-            start_time: startTime + ':00',
-            end_time: endTime + ':00',
-            max_slots: parseInt(formData.get('max_slots')) || 1
-        };
-
-        console.log('Данные для отправки:', data);
-
-        try {
-            const url = mode === 'create' 
-                ? this.API_BASE_URL + '/admin/trainer-schedule' 
-                : this.API_BASE_URL + '/admin/trainer-schedule/' + slotId;
-            const method = mode === 'create' ? 'POST' : 'PUT';
-
-            console.log('Отправка запроса:', method, url);
-
-            const response = await fetch(url, {
-                method: method,
-                headers: this.getAuthHeaders(),
-                body: JSON.stringify(data)
-            });
-
-            const result = await response.json();
-            console.log('Ответ сервера:', result);
-            
-            if (result.success) {
-                this.showNotification(result.message, 'success');
-                this.closeModals();
-                this.loadTrainerSchedule();
-            } else {
-                this.showNotification(result.error || 'Ошибка сервера', 'error');
-            }
-        } catch (error) {
-            console.error('Ошибка сохранения расписания:', error);
-            this.showNotification('Ошибка сохранения: ' + error.message, 'error');
-        }
-    }
-
-    async editScheduleSlot(slotId) {
-        try {
-            const response = await fetch(this.API_BASE_URL + '/admin/trainer-schedule', {
-                headers: this.getAuthHeaders()
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                const slot = data.schedule.find(s => s.id == slotId);
-                if (slot) {
-                    this.openEditScheduleModal(slot);
-                }
-            }
-        } catch (error) {
-            console.error('Ошибка загрузки данных слота:', error);
-            this.showNotification('Ошибка загрузки данных', 'error');
-        }
-    }
-
-    openEditScheduleModal(slot) {
-        const modal = document.getElementById('create-trainer-schedule-modal');
-        if (modal) {
-            modal.style.display = 'block';
-            const form = document.getElementById('trainer-schedule-form');
-            form.dataset.mode = 'edit';
-            form.dataset.slotId = slot.id;
-            document.getElementById('schedule-modal-title').textContent = 'Редактировать расписание';
-
-            form.trainer_id.value = slot.trainer_id;
-            form.day_of_week.value = slot.day_of_week;
-            form.start_time.value = slot.start_time.substring(0, 5);
-            form.end_time.value = slot.end_time.substring(0, 5);
-            form.max_slots.value = slot.max_slots;
-
-            this.populateScheduleTrainerSelect(slot.trainer_id);
-        }
-    }
-
-    async deleteScheduleSlot(slotId) {
-        if (!confirm('Вы уверены, что хотите удалить этот слот расписания?')) {
+            this.renderGrid();
             return;
         }
 
-        try {
-            const response = await fetch(this.API_BASE_URL + '/admin/trainer-schedule/' + slotId, {
-                method: 'DELETE',
-                headers: this.getAuthHeaders()
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                this.showNotification(data.message, 'success');
-                this.loadTrainerSchedule();
-            } else {
-                this.showNotification(data.error, 'error');
-            }
-        } catch (error) {
-            console.error('Ошибка удаления слота:', error);
-            this.showNotification('Ошибка удаления', 'error');
+        select.innerHTML = this.trainers.map(trainer => `
+            <option value="${trainer.id}">
+                ${trainer.name} ${trainer.is_active ? '' : '(неактивен)'}
+            </option>
+        `).join('');
+
+        const firstActive = this.trainers.find(trainer => trainer.is_active) || this.trainers[0];
+        if (firstActive) {
+            select.value = firstActive.id;
+            this.selectTrainer(firstActive.id);
         }
     }
 
-    closeModals() {
-        document.querySelectorAll('.modal').forEach(modal => {
-            modal.style.display = 'none';
+    selectTrainer(trainerId) {
+        if (!trainerId) {
+            this.currentTrainerId = null;
+            this.renderGrid();
+            return;
+        }
+
+        this.currentTrainerId = trainerId;
+        this.ensureTrainerMap(trainerId);
+        this.renderGrid();
+    }
+
+    renderGrid() {
+        if (!this.gridWrapper) return;
+
+        if (!this.currentTrainerId) {
+            this.gridWrapper.innerHTML = `
+                <div class="schedule-grid-placeholder">
+                    <p>Сначала выберите тренера</p>
+                </div>
+            `;
+            return;
+        }
+
+        const trainerMap = this.ensureTrainerMap(this.currentTrainerId);
+
+        const tableHead = `
+            <thead>
+                <tr>
+                    <th>Время</th>
+                    ${this.days.map(day => `<th>${day.short}</th>`).join('')}
+                </tr>
+            </thead>
+        `;
+
+        const tableBody = `
+            <tbody>
+                ${this.hours.map(hour => `
+                    <tr>
+                        <th>${hour}</th>
+                        ${this.days.map(day => {
+                            const active = trainerMap[day.key].has(hour);
+                            return `
+                                <td>
+                                    <button 
+                                        class="slot-cell ${active ? 'active' : ''}" 
+                                        data-day="${day.key}" 
+                                        data-hour="${hour}">
+                                        ${active ? '<span>•</span>' : ''}
+                                    </button>
+                                </td>
+                            `;
+                        }).join('')}
+                    </tr>
+                `).join('')}
+            </tbody>
+        `;
+
+        this.gridWrapper.innerHTML = `
+            <table class="schedule-grid-table">
+                ${tableHead}
+                ${tableBody}
+            </table>
+        `;
+
+        this.updateSelectedCounter();
+    }
+
+    toggleSlot(day, hour, button) {
+        const trainerMap = this.ensureTrainerMap(this.currentTrainerId);
+        const daySet = trainerMap[day];
+
+        if (daySet.has(hour)) {
+            daySet.delete(hour);
+            button.classList.remove('active');
+            button.textContent = '';
+        } else {
+            daySet.add(hour);
+            button.classList.add('active');
+            button.innerHTML = '<span>•</span>';
+        }
+
+        this.updateSelectedCounter();
+    }
+
+    clearCurrentSchedule() {
+        if (!this.currentTrainerId) return;
+        this.scheduleMap[this.currentTrainerId] = this.createEmptyDayMap();
+        this.renderGrid();
+    }
+
+    collectSlots(trainerId) {
+        const map = this.ensureTrainerMap(trainerId);
+        const slots = [];
+
+        this.days.forEach(day => {
+            map[day.key].forEach(hour => {
+                slots.push({ day_of_week: day.key, start_time: hour });
+            });
         });
+
+        return slots;
+    }
+
+    async saveCurrentSchedule() {
+    if (!this.currentTrainerId) {
+        this.showNotification('Выберите тренера', 'warning');
+        return;
+    }
+
+    const slots = this.collectSlots(this.currentTrainerId);
+    
+    if (slots.length === 0) {
+        this.showNotification('Нет выбранных слотов для сохранения', 'warning');
+        return;
+    }
+
+    // Показываем индикатор прогресса
+    this.showProgressIndicator(slots.length);
+
+    try {
+        let successCount = 0;
+        let errorCount = 0;
+        let currentProgress = 0;
+
+        for (const slot of slots) {
+            currentProgress++;
+            this.updateProgressIndicator(currentProgress, slots.length);
+
+            const slotData = {
+                trainer_id: Number(this.currentTrainerId),
+                day_of_week: slot.day_of_week,
+                start_time: slot.start_time + ':00',
+                end_time: this.calculateEndTime(slot.start_time)
+            };
+
+            try {
+                const response = await fetch(this.API_BASE_URL + '/admin/trainer-schedule', {
+                    method: 'POST',
+                    headers: this.getAuthHeaders(),
+                    body: JSON.stringify(slotData)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    successCount++;
+                } else {
+                    errorCount++;
+                    console.error('❌ Ошибка сохранения слота:', data.error);
+                }
+            } catch (slotError) {
+                errorCount++;
+                console.error('❌ Ошибка сети:', slotError);
+            }
+
+            // Небольшая пауза между запросами
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        // Скрываем индикатор прогресса
+        this.hideProgressIndicator();
+
+        // Показываем итог
+        if (errorCount === 0) {
+            this.showNotification(`✅ Успешно сохранено ${successCount} слотов`, 'success');
+        } else if (successCount === 0) {
+            this.showNotification(`❌ Не удалось сохранить ни одного слота (${errorCount} ошибок)`, 'error');
+        } else {
+            this.showNotification(`⚠️ Сохранено ${successCount} слотов, не удалось: ${errorCount}`, 'warning');
+        }
+
+        // Обновляем расписание
+        await this.loadTrainerSchedule();
+
+    } catch (error) {
+        this.hideProgressIndicator();
+        console.error('❌ Общая ошибка:', error);
+        this.showNotification('Ошибка сохранения: ' + error.message, 'error');
+    }
+}
+
+// Методы для индикатора прогресса
+showProgressIndicator(total) {
+    // Создаем или находим индикатор прогресса
+    let progressContainer = document.getElementById('save-progress-container');
+    if (!progressContainer) {
+        progressContainer = document.createElement('div');
+        progressContainer.id = 'save-progress-container';
+        progressContainer.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 10000;
+            min-width: 300px;
+            text-align: center;
+        `;
+        
+        progressContainer.innerHTML = `
+            <h4>Сохранение расписания</h4>
+            <div class="progress-bar" style="width: 100%; height: 20px; background: #f0f0f0; border-radius: 10px; margin: 10px 0;">
+                <div id="save-progress-bar" style="width: 0%; height: 100%; background: #4CAF50; border-radius: 10px; transition: width 0.3s;"></div>
+            </div>
+            <div id="save-progress-text">0/${total}</div>
+            <button id="cancel-save-btn" style="margin-top: 10px; padding: 5px 15px; background: #ff4444; color: white; border: none; border-radius: 4px; cursor: pointer;">Отмена</button>
+        `;
+        
+        document.body.appendChild(progressContainer);
+        
+        // Обработчик отмены
+        document.getElementById('cancel-save-btn').addEventListener('click', () => {
+            this.hideProgressIndicator();
+            this.showNotification('Сохранение отменено', 'warning');
+        });
+    }
+}
+
+updateProgressIndicator(current, total) {
+    const progressBar = document.getElementById('save-progress-bar');
+    const progressText = document.getElementById('save-progress-text');
+    
+    if (progressBar && progressText) {
+        const percent = (current / total) * 100;
+        progressBar.style.width = percent + '%';
+        progressText.textContent = `${current}/${total}`;
+    }
+}
+
+hideProgressIndicator() {
+    const progressContainer = document.getElementById('save-progress-container');
+    if (progressContainer) {
+        progressContainer.remove();
+    }
+}
+
+calculateEndTime(startTime) {
+    const [hours, minutes] = startTime.split(':');
+    const endHours = String(parseInt(hours) + 1).padStart(2, '0');
+    return `${endHours}:${minutes}:00`;
+}
+
+    updateSelectedCounter() {
+        const counter = document.getElementById('schedule-selected-counter');
+        if (!counter || !this.currentTrainerId) {
+            if (counter) counter.textContent = 'Выбрано 0 часов';
+            return;
+        }
+
+        const slots = this.collectSlots(this.currentTrainerId);
+        counter.textContent = `Выбрано ${slots.length} час(ов)`;
     }
 
     showNotification(message, type = 'info') {

@@ -30,17 +30,14 @@ function redirectByRole(user) {
         return;
     }
     
-    switch(user.role) {
-        case 'admin':
-            window.location.href = 'admin-dashboard.html';
-            break;
-        case 'trainer':
-            window.location.href = 'trainer-dashboard.html';
-            break;
-        case 'client':
-        default:
-            window.location.href = 'client-profile.html';
-            break;
+    // Вместо редиректа обновляем интерфейс
+    if (window.navigationManager) {
+        window.navigationManager.refresh();
+        
+        // Показываем dashboard для авторизованных пользователей
+        const role = user.role;
+        const defaultSection = role === 'guest' ? 'home' : 'dashboard';
+        window.navigationManager.showSection(defaultSection);
     }
 }
 
@@ -160,7 +157,13 @@ class Auth {
         
         console.log('Данные очищены');
         
-        window.location.replace('index.html');
+        // Обновляем интерфейс вместо редиректа
+        if (window.navigationManager) {
+            window.navigationManager.refresh();
+            window.navigationManager.showSection('home');
+        } else {
+            window.location.replace('index.html');
+        }
     }
     
     static getToken() {
