@@ -14,18 +14,34 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Routes
 const authRoutes = require('./routes/authRoutes');
 const publicRoutes = require('./routes/publicRoutes');
 const trainerRoutes = require('./routes/trainerRoutes');
 const groupSessionRoutes = require('./routes/groupSessionRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
-const classTypeRoutes = require('./routes/classTypeRoutes');
 const scheduleRoutes = require('./routes/scheduleRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const userRoutes = require('./routes/userRoutes');
+const bookingRoutes = require('./routes/bookingRoutes');
 
-// Test endpoint
+let clientRoutes;
+try {
+    clientRoutes = require('./routes/clientRoutes');
+} catch (error) {
+    const express = require('express');
+    clientRoutes = express.Router();
+    clientRoutes.get('/error', (req, res) => {
+        res.status(500).json({ 
+            success: false, 
+            error: 'Client routes module failed to load',
+            message: error.message 
+        });
+    });
+    clientRoutes.get('/test-fallback', (req, res) => {
+        res.json({ success: true, message: 'Fallback route works', error: error.message });
+    });
+}
+
 app.get('/api/test', (req, res) => {
     res.json({ 
         success: true, 
@@ -34,7 +50,6 @@ app.get('/api/test', (req, res) => {
     });
 });
 
-// Health check
 app.get('/api/health', (req, res) => {
     res.json({ 
         success: true,
@@ -43,20 +58,31 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// API Routes
+if (clientRoutes && typeof clientRoutes === 'function') {
+    app.use('/api/client', clientRoutes);
+}
+
 app.use('/api/auth', authRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/trainers', trainerRoutes);
 app.use('/api/trainer', trainerRoutes);
 app.use('/api/group-sessions', groupSessionRoutes);
-app.use('/api/class-types', classTypeRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/bookings', bookingRoutes);
+
+// Маршруты для тренировок
+const trainingRoutes = require('./routes/trainingRoutes');
+app.use('/api/trainings', trainingRoutes);
+
+// Маршруты для отзывов
+const reviewRoutes = require('./routes/reviewRoutes');
+app.use('/api/reviews', reviewRoutes);
+
+// Маршруты для инвентаря
+const inventoryRoutes = require('./routes/inventoryRoutes');
+app.use('/api/inventory', inventoryRoutes);
 
 app.listen(PORT, async () => {
-    console.log(`Сервер запущен на порту ${PORT}`);
-    console.log(`API доступно: http://localhost:${PORT}/api`);
-    console.log(`Health check: http://localhost:${PORT}/api/health`);
-    
     await testDB();
 });

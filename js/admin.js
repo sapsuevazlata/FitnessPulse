@@ -18,7 +18,6 @@ class AdminManager {
     }
 
     init() {
-        console.log('Инициализация админ-панели...');
         this.bindEvents();
         this.loadTrainers();
         this.loadStats();
@@ -26,8 +25,6 @@ class AdminManager {
     }
 
     bindEvents() {
-        console.log('Привязка событий админ-панели...');
-        
         const trainerForm = document.getElementById('trainer-form');
         if (trainerForm) {
             trainerForm.addEventListener('submit', (e) => {
@@ -43,12 +40,17 @@ class AdminManager {
                 this.saveSession(sessionForm);
             });
             
-            const dayCheckboxes = sessionForm.querySelectorAll('input[name="days"]');
-            dayCheckboxes.forEach(checkbox => {
-                checkbox.addEventListener('change', (e) => {
-                    const checked = sessionForm.querySelectorAll('input[name="days"]:checked');
-                    if (checked.length > 2) {
+            // Валидация дня для групповых занятий (только один день - суббота или воскресенье)
+            const dayRadios = sessionForm.querySelectorAll('input[name="days"]');
+            dayRadios.forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    const selectedDay = e.target.value;
+                    const allowedDays = ['saturday', 'sunday'];
+                    
+                    // Проверяем, что выбран разрешенный день
+                    if (!allowedDays.includes(selectedDay)) {
                         e.target.checked = false;
+                        this.showNotification('Для групповых занятий можно выбрать только Субботу или Воскресенье', 'warning');
                     }
                 });
             });
@@ -81,7 +83,6 @@ class AdminManager {
                 this.renderStats(data.stats);
             }
         } catch (error) {
-            console.error('Ошибка загрузки статистики:', error);
             const fallbackStats = {
                 totalClients: 0,
                 activeTrainers: 0,
@@ -93,7 +94,6 @@ class AdminManager {
     }
 
     renderStats(stats) {
-        console.log('Статистика:', stats);
         if (stats.totalClients !== undefined) {
             document.getElementById('totalClients').textContent = stats.totalClients;
         }
@@ -104,32 +104,24 @@ class AdminManager {
             document.getElementById('todaySessions').textContent = stats.todaySessions;
         }
         if (stats.monthlyRevenue !== undefined) {
-            document.getElementById('monthlyRevenue').textContent = stats.monthlyRevenue + ' ₽';
+            document.getElementById('monthlyRevenue').textContent = stats.monthlyRevenue + ' Br';
         }
     }
 
     async loadTrainers() {
         try {
-            console.log('Загрузка тренеров...');
             const url = this.API_BASE_URL + '/trainers';
-            console.log('URL запроса:', url);
-            console.log('Токен:', Auth.getToken() ? 'Есть' : 'Нет');
             
             const response = await fetch(url, {
                 headers: this.getAuthHeaders()
             });
             
-            console.log('Статус ответа:', response.status);
-            console.log('Заголовки ответа:', response.headers);
-            
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error('Ошибка HTTP:', response.status, errorText);
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             
             const data = await response.json();
-            console.log('Ответ сервера:', data);
             
             if (data.success) {
                 this.trainers = data.trainers;
@@ -138,7 +130,6 @@ class AdminManager {
                 this.showNotification('Ошибка загрузки тренеров: ' + (data.error || 'неизвестная ошибка'), 'error');
             }
         } catch (error) {
-            console.error('Ошибка загрузки тренеров:', error);
             this.showNotification('Ошибка загрузки тренеров: ' + error.message, 'error');
         }
     }
@@ -146,37 +137,108 @@ class AdminManager {
     renderTrainers(trainers) {
         const container = document.getElementById('admin-trainers-list');
         if (!container) {
-            console.error('Контейнер тренеров не найден');
             return;
         }
-
-        console.log('Рендерим тренеров:', trainers);
+        
+        // Убеждаемся, что контейнер видим
+        if (container.style.display === 'none') {
+            container.style.display = 'grid';
+        }
 
         if (!trainers || trainers.length === 0) {
             container.innerHTML = '<div class="card"><p>Тренеры не найдены</p></div>';
             return;
         }
 
-        container.innerHTML = trainers.map(trainer => `
-            <div class="card trainer-card">
-                <div class="card-content">
-                    <h3>${trainer.name || 'Без имени'}</h3>
-                    <p><strong>Email:</strong> ${trainer.email || 'Не указан'}</p>
-                    <p><strong>Телефон:</strong> ${trainer.phone || 'Не указан'}</p>
-                    <p><strong>Опыт:</strong> ${this.getExperienceText(trainer.experience)}</p>
-                    <p><strong>Специализация:</strong> ${trainer.specialization || 'Не указана'}</p>
-                    <p><strong>Статус:</strong> ${trainer.is_active ? 'Активен' : 'Неактивен'}</p>
-                    <div class="card-actions">
-                        <button class="btn btn-outline" onclick="adminManager.editTrainer(${trainer.id})">Редактировать</button>
-                        <button class="btn btn-danger" onclick="adminManager.deleteTrainer(${trainer.id})">Удалить</button>
+        container.innerHTML = trainers.map(trainer => {
+            const firstLetter = trainer.name ? trainer.name.charAt(0).toUpperCase() : 'T';
+            const photoUrl = trainer.id ? `assets/images/trainers/trainer-${trainer.id}.jpg` : null;
+            const rating = trainer.rating || 0;
+            const ratingStars = this.renderRatingStars(rating);
+            
+            return `
+                <div class="trainer-card" data-trainer-id="${trainer.id}" data-experience="${trainer.experience || ''}">
+                    <div class="trainer-header">
+                        <div class="trainer-avatar-wrapper">
+                            ${photoUrl ? `
+                                <img src="${photoUrl}" alt="${trainer.name || 'Тренер'}" class="trainer-photo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+                            ` : ''}
+                            <div class="trainer-avatar" style="${photoUrl ? 'display:none;' : ''}">${firstLetter}</div>
+                        </div>
+                        <div class="trainer-info">
+                            <h3>${trainer.name || 'Тренер'}</h3>
+                            <div class="trainer-rating">${ratingStars}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="trainer-specialization">${trainer.specialization || 'Фитнес'}</div>
+                    
+                    <div class="trainer-experience">
+                        <i class="fas fa-award"></i> Опыт: ${this.getExperienceText(trainer.experience)}
+                    </div>
+                    
+                    <div class="trainer-details">
+                        <div class="detail-item">
+                            <i class="fas fa-envelope"></i>
+                            <span>${trainer.email || 'Не указан'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <i class="fas fa-phone"></i>
+                            <span>${trainer.phone || 'Не указан'}</span>
+                        </div>
+                    </div>
+                    
+                    ${trainer.bio ? `
+                        <div class="trainer-bio">
+                            ${trainer.bio}
+                        </div>
+                    ` : ''}
+                    
+                    <div class="trainer-footer">
+                        <div class="card-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                            <button class="btn btn-outline btn-sm" onclick="adminManager.editTrainer(${trainer.id})">
+                                <i class="fas fa-edit"></i> Редактировать
+                            </button>
+                            <button class="btn btn-danger btn-sm" onclick="adminManager.deleteTrainer(${trainer.id})">
+                                <i class="fas fa-trash"></i> Удалить
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
+    }
+
+    renderRatingStars(rating) {
+        // Преобразуем rating в число, если это не число
+        const ratingNum = typeof rating === 'number' ? rating : (rating ? parseFloat(rating) : 0);
+        
+        if (isNaN(ratingNum) || ratingNum === 0) {
+            return '<span style="color: #cbd5e1; font-size: 12px;">Нет оценок</span>';
+        }
+        
+        const fullStars = Math.floor(ratingNum);
+        const hasHalfStar = ratingNum % 1 >= 0.5;
+        const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+        
+        let stars = '';
+        
+        for (let i = 0; i < fullStars; i++) {
+            stars += '<i class="fas fa-star"></i>';
+        }
+        
+        if (hasHalfStar) {
+            stars += '<i class="fas fa-star-half-alt"></i>';
+        }
+        
+        for (let i = 0; i < emptyStars; i++) {
+            stars += '<i class="far fa-star"></i>';
+        }
+        
+        return stars + ` <span style="color: #cbd5e1; font-size: 12px;">(${ratingNum.toFixed(1)})</span>`;
     }
 
     openCreateTrainerModal() {
-        console.log('Открываем модальное окно тренера');
         const modal = document.getElementById('create-trainer-modal');
         if (modal) {
             modal.style.display = 'block';
@@ -184,31 +246,41 @@ class AdminManager {
             form.reset();
             form.dataset.mode = 'create';
             
+            // Устанавливаем заголовок "Добавить тренера"
+            const title = document.getElementById('trainer-modal-title');
+            if (title) title.textContent = 'Добавить тренера';
+            
             const passwordField = form.querySelector('#password-field');
             if (passwordField) passwordField.style.display = 'block';
             
             const activeField = form.querySelector('#active-field');
             if (activeField) activeField.remove();
-        } else {
-            console.error('Модальное окно не найдено');
         }
     }
 
     async saveTrainer(form) {
-        console.log('Сохраняем тренера...');
-        
         const mode = form.dataset.mode;
         const trainerId = form.dataset.trainerId;
         
         const formData = new FormData(form);
+        const phone = formData.get('phone');
+        
+        // Проверка формата телефона (необязательное поле, но если введено, то в формате +375XXXXXXXXX)
+        if (phone && phone.trim() !== '') {
+            const phoneRegex = /^\+375[0-9]{9}$/;
+            if (!phoneRegex.test(phone.trim())) {
+                this.showNotification('Номер телефона должен быть в формате +375XXXXXXXXX (например, +375291234567) или оставьте поле пустым', 'error');
+                return;
+            }
+        }
+        
         const data = {
             name: formData.get('name'),
             email: formData.get('email'),
-            phone: formData.get('phone'),
+            phone: phone && phone.trim() !== '' ? phone.trim() : null,
             experience: formData.get('experience'),
             specialization: formData.get('specialization'),
-            bio: formData.get('bio'),
-            is_active: formData.get('is_active') ? true : false
+            bio: formData.get('bio')
         };
 
         if (mode === 'create') {
@@ -227,8 +299,6 @@ class AdminManager {
                 : this.API_BASE_URL + '/trainers/' + trainerId;
             const method = mode === 'create' ? 'POST' : 'PUT';
 
-            console.log(`Отправка запроса: ${method} ${url}`, data);
-
             response = await fetch(url, {
                 method: method,
                 headers: this.getAuthHeaders(),
@@ -236,7 +306,6 @@ class AdminManager {
             });
 
             const result = await response.json();
-            console.log('Ответ сервера:', result);
             
             if (result.success) {
                 this.showNotification(result.message, 'success');
@@ -247,13 +316,11 @@ class AdminManager {
                 this.showNotification(result.error || 'Ошибка сервера', 'error');
             }
         } catch (error) {
-            console.error('Ошибка сохранения тренера:', error);
             this.showNotification('Ошибка сохранения: ' + error.message, 'error');
         }
     }
 
     async editTrainer(trainerId) {
-        console.log('Редактируем тренера:', trainerId);
         try {
             const response = await fetch(this.API_BASE_URL + '/trainers', {
                 headers: this.getAuthHeaders()
@@ -269,19 +336,21 @@ class AdminManager {
                 }
             }
         } catch (error) {
-            console.error('Ошибка загрузки данных тренера:', error);
             this.showNotification('Ошибка загрузки данных тренера', 'error');
         }
     }
 
     openEditTrainerModal(trainer) {
-        console.log('Открываем редактирование тренера:', trainer);
         const modal = document.getElementById('create-trainer-modal');
         if (modal) {
             modal.style.display = 'block';
             const form = document.getElementById('trainer-form');
             form.dataset.mode = 'edit';
             form.dataset.trainerId = trainer.id;
+            
+            // Изменяем заголовок модального окна
+            const title = document.getElementById('trainer-modal-title');
+            if (title) title.textContent = 'Изменить тренера';
             
             form.name.value = trainer.name || '';
             form.email.value = trainer.email || '';
@@ -293,18 +362,6 @@ class AdminManager {
             const passwordField = form.querySelector('#password-field');
             if (passwordField) passwordField.style.display = 'none';
             
-            let activeField = form.querySelector('#active-field');
-            if (!activeField) {
-                activeField = document.createElement('div');
-                activeField.id = 'active-field';
-                activeField.innerHTML = `
-                    <label style="display: flex; align-items: center; gap: 8px; margin: 10px 0;">
-                        <input type="checkbox" name="is_active" ${trainer.is_active ? 'checked' : ''}>
-                        Активный тренер
-                    </label>
-                `;
-                form.insertBefore(activeField, form.querySelector('button'));
-            }
         }
     }
 
@@ -324,13 +381,11 @@ class AdminManager {
                 }
             }
         } catch (error) {
-            console.error('Ошибка загрузки данных тренера:', error);
             this.showNotification('Ошибка загрузки данных тренера', 'error');
         }
     }
 
     openDeleteConfirmModal(trainer) {
-        console.log('Подтверждение удаления тренера:', trainer);
         const modal = document.getElementById('delete-confirm-modal');
         if (modal) {
             modal.style.display = 'block';
@@ -345,7 +400,6 @@ class AdminManager {
 
     async confirmDeleteTrainer(trainerId) {
         try {
-            console.log('Удаляем тренера:', trainerId);
             const response = await fetch(this.API_BASE_URL + '/trainers/' + trainerId, {
                 method: 'DELETE',
                 headers: this.getAuthHeaders()
@@ -361,7 +415,6 @@ class AdminManager {
                 this.showNotification(data.error, 'error');
             }
         } catch (error) {
-            console.error('Ошибка удаления тренера:', error);
             this.showNotification('Ошибка удаления', 'error');
         }
     }
@@ -385,28 +438,25 @@ class AdminManager {
         const notification = document.createElement('div');
         notification.className = `notification ${type}`;
         notification.textContent = message;
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 20px;
-            background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
-            color: white;
-            border-radius: 4px;
-            z-index: 10000;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        `;
         
         document.body.appendChild(notification);
         
         setTimeout(() => {
-            notification.remove();
+            notification.classList.add('show');
+        }, 10);
+        
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
         }, 3000);
     }
 
     async loadUsers() {
         try {
-            console.log('Загрузка клиентов...');
             const response = await fetch(this.API_BASE_URL + '/users', {
                 headers: this.getAuthHeaders()
             });
@@ -416,17 +466,14 @@ class AdminManager {
             }
             
             const data = await response.json();
-            console.log('Получены пользователи:', data);
             
             if (data.success) {
                 const clients = data.users.filter(user => user.role === 'client');
                 this.renderUsers(clients);
-                this.updateUserStats(clients);
             } else {
                 this.showNotification('Ошибка загрузки клиентов', 'error');
             }
         } catch (error) {
-            console.error('Ошибка загрузки клиентов:', error);
             this.showNotification('Ошибка загрузки клиентов: ' + error.message, 'error');
         }
     }
@@ -434,7 +481,6 @@ class AdminManager {
     renderUsers(clients) {
         const container = document.getElementById('admin-users-list');
         if (!container) {
-            console.error('Контейнер пользователей не найден');
             return;
         }
 
@@ -453,7 +499,6 @@ class AdminManager {
                     <div class="user-info">
                         <p><strong>Email:</strong> ${client.email || 'Не указан'}</p>
                         <p><strong>Телефон:</strong> ${client.phone || 'Не указан'}</p>
-                        <p><strong>Дата регистрации:</strong> ${this.formatDate(client.created_at)}</p>
                         <p><strong>ID:</strong> ${client.id}</p>
                     </div>
                     <div class="card-actions">
@@ -466,37 +511,21 @@ class AdminManager {
         `).join('');
     }
 
-    updateUserStats(clients) {
-        const currentMonth = new Date().getMonth();
-        const currentYear = new Date().getFullYear();
-        
-        const newClientsThisMonth = clients.filter(client => {
-            if (!client.created_at) return false;
-            const createdDate = new Date(client.created_at);
-            return createdDate.getMonth() === currentMonth && createdDate.getFullYear() === currentYear;
-        }).length;
-
-        document.getElementById('newClientsThisMonth').textContent = newClientsThisMonth;
-    }
 
     async deleteUser(userId, userName) {
-    if (!confirm(`Вы уверены, что хотите удалить клиента "${userName}"? Это действие нельзя отменить.`)) {
+    const confirmed = await showConfirm(`Вы уверены, что хотите удалить клиента "${userName}"? Это действие нельзя отменить.`);
+    if (!confirmed) {
         return;
     }
 
     try {
-        console.log('Удаляем клиента:', userId);
         const response = await fetch(this.API_BASE_URL + '/users/' + userId, {
             method: 'DELETE',
             headers: this.getAuthHeaders()
         });
         
-        console.log('Статус ответа удаления:', response.status);
-        console.log('Заголовки ответа:', response.headers);
-        
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('Ошибка HTTP:', response.status, errorText);
             
             if (errorText.includes('<!DOCTYPE') || errorText.includes('<html')) {
                 throw new Error(`Сервер вернул HTML вместо JSON. Проверьте endpoint. Статус: ${response.status}`);
@@ -517,12 +546,10 @@ class AdminManager {
             }
         } else {
             const text = await response.text();
-            console.error('Сервер вернул не JSON:', text.substring(0, 200));
             this.showNotification('Ошибка сервера: неверный формат ответа', 'error');
         }
         
     } catch (error) {
-        console.error('Ошибка удаления клиента:', error);
         this.showNotification('Ошибка удаления клиента: ' + error.message, 'error');
     }
 }
@@ -535,7 +562,6 @@ class AdminManager {
 
     async loadGroupSessions() {
         try {
-            console.log('Загрузка групповых занятий...');
             const response = await fetch(this.API_BASE_URL + '/group-sessions', {
                 headers: this.getAuthHeaders()
             });
@@ -545,7 +571,6 @@ class AdminManager {
             }
             
             const data = await response.json();
-            console.log('Ответ сервера занятий:', data);
             
             if (data.success) {
                 this.renderGroupSessions(data.sessions);
@@ -553,7 +578,6 @@ class AdminManager {
                 this.showNotification('Ошибка загрузки занятий: ' + (data.error || 'неизвестная ошибка'), 'error');
             }
         } catch (error) {
-            console.error('Ошибка загрузки групповых занятий:', error);
             this.showNotification('Ошибка загрузки занятий: ' + error.message, 'error');
         }
     }
@@ -602,16 +626,12 @@ class AdminManager {
                         </div>
                     </div>
 
-                    <div class="class-status ${session.is_active ? 'active' : 'inactive'}">
-                        ${session.is_active ? '✅ Активно' : '❌ Неактивно'}
-                    </div>
                 </div>
             </div>
         `).join('');
     }
 
-    openCreateSessionModal() {
-        console.log('Открываем модальное окно занятия');
+    async openCreateSessionModal() {
         const modal = document.getElementById('create-session-modal');
         if (modal) {
             modal.style.display = 'block';
@@ -620,6 +640,10 @@ class AdminManager {
             form.dataset.mode = 'create';
             document.getElementById('session-modal-title').textContent = 'Добавить групповое занятие';
             
+            // Убеждаемся, что тренеры загружены
+            if (!this.trainers || this.trainers.length === 0) {
+                await this.loadTrainers();
+            }
             this.populateSessionTrainerSelect();
             
             const activeField = form.querySelector('#session-active-field');
@@ -628,13 +652,10 @@ class AdminManager {
     }
 
     async editSession(sessionId) {
-        console.log('Редактируем занятие:', sessionId);
         try {
             const response = await fetch(`${this.API_BASE_URL}/group-sessions/${sessionId}`, {
                 headers: this.getAuthHeaders()
             });
-            
-            console.log('Статус ответа редактирования:', response.status);
             
             if (!response.ok) {
                 if (response.status === 404) {
@@ -644,7 +665,6 @@ class AdminManager {
             }
             
             const data = await response.json();
-            console.log('Данные для редактирования:', data);
             
             if (data.success) {
                 this.openEditSessionModal(data.session);
@@ -652,13 +672,11 @@ class AdminManager {
                 this.showNotification('Ошибка загрузки данных: ' + (data.error || ''), 'error');
             }
         } catch (error) {
-            console.error('Ошибка загрузки данных занятия:', error);
             this.showNotification('Ошибка загрузки данных занятия: ' + error.message, 'error');
         }
     }
 
     openEditSessionModal(session) {
-        console.log('Открываем редактирование занятия:', session);
         const modal = document.getElementById('create-session-modal');
         if (modal) {
             modal.style.display = 'block';
@@ -673,40 +691,42 @@ class AdminManager {
             form.max_participants.value = session.max_participants || '';
             form.duration.value = session.duration || '';
             
-            const days = session.days ? (Array.isArray(session.days) ? session.days : session.days.split(',')) : [];
-            console.log('Дни для чекбоксов:', days);
+            // Обрабатываем день - может быть строка или массив
+            let selectedDay = null;
+            if (session.days) {
+                if (Array.isArray(session.days)) {
+                    // Если массив, берем первый день (или субботу/воскресенье если есть)
+                    selectedDay = session.days.find(day => day === 'saturday' || day === 'sunday') || session.days[0];
+                } else {
+                    // Если строка, проверяем есть ли суббота или воскресенье
+                    const daysArray = session.days.split(',');
+                    selectedDay = daysArray.find(day => day.trim() === 'saturday' || day.trim() === 'sunday') || daysArray[0].trim();
+                }
+            }
             
-            form.querySelectorAll('input[name="days"]').forEach(checkbox => {
-                checkbox.checked = days.includes(checkbox.value);
+            // Устанавливаем выбранную радиокнопку
+            form.querySelectorAll('input[name="days"]').forEach(radio => {
+                radio.checked = radio.value === selectedDay;
             });
             
             this.populateSessionTrainerSelect(session.trainer_id);
             
-            const activeCheckbox = form.querySelector('input[name="is_active"]');
-            if (activeCheckbox) {
-                activeCheckbox.checked = session.is_active;
-            }
         }
     }
 
     populateSessionTrainerSelect(selectedTrainerId = null) {
         const select = document.getElementById('session-trainer-select');
         if (!select) {
-            console.error('select для тренеров не найден');
             return;
         }
 
         if (!this.trainers || this.trainers.length === 0) {
-            console.log('Список тренеров пуст');
             select.innerHTML = '<option value="">Нет доступных тренеров</option>';
             return;
         }
-
-        console.log('Заполняем select тренеров:', this.trainers);
         
-        select.innerHTML = '<option value="">Без тренера</option>' +
+        select.innerHTML = '<option value="">Выберите тренера</option>' +
             this.trainers
-                .filter(trainer => trainer.is_active)
                 .map(trainer => `
                     <option value="${trainer.id}" ${trainer.id == selectedTrainerId ? 'selected' : ''}>
                         ${trainer.name} - ${trainer.specialization || 'Без специализации'}
@@ -715,35 +735,47 @@ class AdminManager {
     }
 
     async saveSession(form) {
-        console.log('Сохраняем занятие...');
-        
         const mode = form.dataset.mode;
         const sessionId = form.dataset.sessionId;
         
         const formData = new FormData(form);
-        const selectedDays = Array.from(form.querySelectorAll('input[name="days"]:checked'))
-            .map(checkbox => checkbox.value);
+        const selectedDay = form.querySelector('input[name="days"]:checked');
         
-        if (selectedDays.length !== 2) {
-            this.showNotification('Пожалуйста, выберите ровно два дня недели', 'error');
+        if (!selectedDay) {
+            this.showNotification('Пожалуйста, выберите день недели (Суббота или Воскресенье)', 'error');
             return;
         }
         
         const trainerId = form.trainer_id.value;
-        console.log('🔍 trainer_id:', trainerId);
+        
+        if (!trainerId || trainerId === '') {
+            this.showNotification('Пожалуйста, выберите тренера', 'error');
+            return;
+        }
+        
+        // Проверка времени занятия (9:00-21:00)
+        const time = form.time.value;
+        if (time) {
+            const [hours, minutes] = time.split(':').map(Number);
+            const timeInMinutes = hours * 60 + minutes;
+            const minTime = 9 * 60; // 9:00
+            const maxTime = 21 * 60; // 21:00
+            
+            if (timeInMinutes < minTime || timeInMinutes > maxTime) {
+                this.showNotification('Время занятия должно быть с 9:00 до 21:00', 'error');
+                return;
+            }
+        }
         
         const data = {
             name: form.name.value,
             description: form.description.value,
-            days: selectedDays,
-            time: form.time.value,
+            days: selectedDay.value, // Теперь это один день, а не массив
+            time: time,
             max_participants: parseInt(form.max_participants.value),
             duration: parseInt(form.duration.value),
-            is_active: form.is_active.checked,
-            trainer_id: trainerId === '' ? null : parseInt(trainerId)
+            trainer_id: parseInt(trainerId)
         };
-
-        console.log('Данные для отправки:', data);
 
         try {
             const url = mode === 'create' 
@@ -767,28 +799,22 @@ class AdminManager {
                 this.showNotification(result.error || 'Ошибка сервера', 'error');
             }
         } catch (error) {
-            console.error('Ошибка сохранения занятия:', error);
             this.showNotification('Ошибка сохранения: ' + error.message, 'error');
         }
     }
 
     async deleteSession(sessionId) {
-        console.log('Удаляем занятие:', sessionId);
         try {
             const response = await fetch(this.API_BASE_URL + '/group-sessions/' + sessionId, {
                 headers: this.getAuthHeaders()
             });
             
-            console.log('Статус ответа удаления:', response.status);
-            
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error('Ошибка HTTP при удалении:', response.status, errorText);
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             
             const data = await response.json();
-            console.log('Ответ удаления:', data);
             
             if (data.success) {
                 this.openDeleteSessionConfirmModal(data.session);
@@ -796,13 +822,11 @@ class AdminManager {
                 this.showNotification('Ошибка удаления: ' + (data.error || ''), 'error');
             }
         } catch (error) {
-            console.error('Ошибка загрузки данных занятия для удаления:', error);
             this.showNotification('Ошибка: ' + error.message, 'error');
         }
     }
 
     openDeleteSessionConfirmModal(session) {
-        console.log('Подтверждение удаления занятия:', session);
         const modal = document.getElementById('delete-session-confirm-modal');
         if (modal) {
             modal.style.display = 'block';
@@ -817,7 +841,6 @@ class AdminManager {
 
     async confirmDeleteSession(sessionId) {
         try {
-            console.log('Удаляем занятие:', sessionId);
             const response = await fetch(this.API_BASE_URL + '/group-sessions/' + sessionId, {
                 method: 'DELETE',
                 headers: this.getAuthHeaders()
@@ -832,7 +855,6 @@ class AdminManager {
                 this.showNotification(data.error, 'error');
             }
         } catch (error) {
-            console.error('Ошибка удаления занятия:', error);
             this.showNotification('Ошибка удаления', 'error');
         }
     }

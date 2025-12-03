@@ -4,7 +4,14 @@ class TrainerSchedule {
     static async getAll() {
         const [schedule] = await pool.execute(`
             SELECT 
-                ts.*,
+                ts.id,
+                ts.trainer_id,
+                ts.day_of_week,
+                ts.start_time,
+                ts.end_time,
+                ts.slot_type,
+                ts.max_slots,
+                ts.created_by,
                 u.name as trainer_name,
                 t.specialization
             FROM trainer_schedule ts
@@ -20,7 +27,15 @@ class TrainerSchedule {
 
     static async findByTrainerId(trainerId) {
         const [schedule] = await pool.execute(`
-            SELECT * 
+            SELECT 
+                id,
+                trainer_id,
+                day_of_week,
+                start_time,
+                end_time,
+                slot_type,
+                max_slots,
+                created_by
             FROM trainer_schedule 
             WHERE trainer_id = ?
         `, [trainerId]);
@@ -100,22 +115,26 @@ class TrainerSchedule {
             );
 
             if (slots.length > 0) {
-                const values = slots.map(slot => [
-                    trainerId,
-                    slot.day_of_week,
-                    slot.start_time,
-                    slot.end_time,
-                    slot.slot_type || 'personal',
-                    slot.max_slots || 1,
-                    adminId,
-                    slot.is_active ?? 1
-                ]);
+                const placeholders = slots.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+                const values = [];
+                
+                slots.forEach(slot => {
+                    values.push(
+                        trainerId,
+                        slot.day_of_week,
+                        slot.start_time,
+                        slot.end_time,
+                        slot.slot_type || 'personal',
+                        slot.max_slots || 1,
+                        adminId || null
+                    );
+                });
 
-                await connection.query(
+                await connection.execute(
                     `INSERT INTO trainer_schedule 
-                        (trainer_id, day_of_week, start_time, end_time, slot_type, max_slots, created_by, is_active) 
-                     VALUES ?`,
-                    [values]
+                        (trainer_id, day_of_week, start_time, end_time, slot_type, max_slots, created_by) 
+                     VALUES ${placeholders}`,
+                    values
                 );
             }
 

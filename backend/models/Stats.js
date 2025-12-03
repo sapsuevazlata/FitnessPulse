@@ -6,12 +6,12 @@ class Stats {
             "SELECT COUNT(*) as totalClients FROM users WHERE role = 'client'"
         );
         
-        const [[{activeTrainers}]] = await pool.execute(
-            "SELECT COUNT(*) as activeTrainers FROM trainers WHERE is_active = TRUE"
+        const [[{totalTrainers}]] = await pool.execute(
+            "SELECT COUNT(*) as totalTrainers FROM trainers"
         );
         
         const [[{todaySessions}]] = await pool.execute(
-            "SELECT COUNT(*) as todaySessions FROM group_sessions WHERE is_active = 1"
+            "SELECT COUNT(*) as todaySessions FROM group_sessions"
         );
         
         const [[{monthlyRevenue}]] = await pool.execute(`
@@ -25,7 +25,7 @@ class Stats {
 
         return {
             totalClients: parseInt(totalClients),
-            activeTrainers: parseInt(activeTrainers),
+            activeTrainers: parseInt(totalTrainers),
             todaySessions: parseInt(todaySessions),
             monthlyRevenue: parseFloat(monthlyRevenue)
         };

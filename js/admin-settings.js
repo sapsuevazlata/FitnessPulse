@@ -13,7 +13,6 @@ class AdminSettingsManager {
     }
 
     init() {
-        console.log('🔧 Инициализация управления настройками...');
         this.bindEvents();
         this.loadAdminProfile();
     }
@@ -30,8 +29,6 @@ class AdminSettingsManager {
 
     async loadAdminProfile() {
         try {
-            console.log('Загружаем данные админа...');
-            
             if (this.currentUser) {
                 this.renderAdminProfile(this.currentUser);
             }
@@ -47,7 +44,6 @@ class AdminSettingsManager {
                 }
             }
         } catch (error) {
-            console.error('Ошибка загрузки профиля админа:', error);
         }
     }
 
@@ -56,14 +52,11 @@ class AdminSettingsManager {
         document.getElementById('admin-profile-email').value = user.email || '';
         document.getElementById('admin-profile-phone').value = user.phone || '';
         
-        document.getElementById('admin-registration-date').textContent = 
-            user.created_at ? new Date(user.created_at).toLocaleDateString('ru-RU') : 'Не указана';
+        document.getElementById('admin-registration-date').textContent = 'Не указана';
         document.getElementById('admin-user-id').textContent = user.id || 'Не указан';
     }
 
     async updateAdminProfile(form) {
-        console.log('Обновляем профиль админа...');
-        
         const formData = new FormData(form);
         const password = formData.get('password');
         const confirmPassword = formData.get('confirm_password');
@@ -83,8 +76,6 @@ class AdminSettingsManager {
             data.password = password;
         }
 
-        console.log('Данные для обновления:', data);
-
         try {
             const response = await fetch(this.API_BASE_URL + '/admin/profile', {
                 method: 'PUT',
@@ -93,7 +84,6 @@ class AdminSettingsManager {
             });
 
             const result = await response.json();
-            console.log('Ответ сервера:', result);
             
             if (result.success) {
                 this.showNotification('Профиль успешно обновлен', 'success');
@@ -111,7 +101,6 @@ class AdminSettingsManager {
                 this.showNotification(result.error || 'Ошибка обновления', 'error');
             }
         } catch (error) {
-            console.error('Ошибка обновления профиля:', error);
             this.showNotification('Ошибка обновления: ' + error.message, 'error');
         }
     }
@@ -120,22 +109,20 @@ class AdminSettingsManager {
         const notification = document.createElement('div');
         notification.className = `notification ${type}`;
         notification.textContent = message;
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 20px;
-            background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
-            color: white;
-            border-radius: 4px;
-            z-index: 10000;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        `;
         
         document.body.appendChild(notification);
         
         setTimeout(() => {
-            notification.remove();
+            notification.classList.add('show');
+        }, 10);
+        
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
         }, 3000);
     }
 }

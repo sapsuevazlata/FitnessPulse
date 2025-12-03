@@ -12,7 +12,6 @@ class AdminSubscriptionsManager {
     }
 
     init() {
-        console.log('🔧 Инициализация управления абонементами...');
         this.bindEvents();
         this.loadSubscriptions();
     }
@@ -37,10 +36,8 @@ class AdminSubscriptionsManager {
             
             if (data.success) {
                 this.renderSubscriptions(data.subscriptions);
-                this.updateStats(data.subscriptions);
             }
         } catch (error) {
-            console.error('Ошибка загрузки абонементов:', error);
         }
     }
 
@@ -54,8 +51,6 @@ class AdminSubscriptionsManager {
         }
 
         container.innerHTML = subscriptions.map(subscription => {
-            const isActive = Boolean(subscription.is_active);
-            
             return `
                 <div class="card subscription-card">
                     <div class="card-content">
@@ -70,8 +65,8 @@ class AdminSubscriptionsManager {
                         
                         <div class="subscription-details">
                             <div class="detail-item">
-                                <i class="fas fa-ruble-sign"></i>
-                                <span>${subscription.price} ₽</span>
+                                <i class="fas fa-coins"></i>
+                                <span>${subscription.price} Br</span>
                             </div>
                             <div class="detail-item">
                                 <i class="fas fa-ticket-alt"></i>
@@ -81,10 +76,6 @@ class AdminSubscriptionsManager {
                                 <i class="fas fa-calendar"></i>
                                 <span>${subscription.duration_days} дней</span>
                             </div>
-                        </div>
-
-                        <div class="subscription-status ${isActive ? 'active' : 'inactive'}">
-                            ${isActive ? '✅ Активен' : '❌ Неактивен'}
                         </div>
 
                         <div class="card-actions">
@@ -110,13 +101,6 @@ class AdminSubscriptionsManager {
         return types[type] || type;
     }
 
-    updateStats(subscriptions) {
-        const total = subscriptions.length;
-        const active = subscriptions.filter(s => s.is_active).length;
-        
-        document.getElementById('totalSubscriptions').textContent = total;
-        document.getElementById('activeSubscriptions').textContent = active;
-    }
 
     openCreateSubscriptionModal() {
         const modal = document.getElementById('create-subscription-modal');
@@ -131,8 +115,6 @@ class AdminSubscriptionsManager {
 
     async editSubscription(subscriptionId) {
         try {
-            console.log('Редактируем абонемент:', subscriptionId);
-            
             const response = await fetch(this.API_BASE_URL + '/admin/subscriptions', {
                 headers: this.getAuthHeaders()
             });
@@ -146,7 +128,6 @@ class AdminSubscriptionsManager {
                 }
             }
         } catch (error) {
-            console.error('Ошибка загрузки данных абонемента:', error);
             this.showNotification('Ошибка загрузки данных', 'error');
         }
     }
@@ -166,13 +147,10 @@ class AdminSubscriptionsManager {
             form.price.value = subscription.price || '';
             form.visits_count.value = subscription.visits_count || '';
             form.duration_days.value = subscription.duration_days || '';
-            form.is_active.checked = Boolean(subscription.is_active);
         }
     }
 
     async saveSubscription(form) {
-        console.log('Сохраняем абонемент...');
-        
         const mode = form.dataset.mode;
         const subscriptionId = form.dataset.subscriptionId;
         
@@ -183,11 +161,8 @@ class AdminSubscriptionsManager {
             description: formData.get('description'),
             price: parseFloat(formData.get('price')),
             visits_count: parseInt(formData.get('visits_count')),
-            duration_days: parseInt(formData.get('duration_days')),
-            is_active: formData.get('is_active') ? true : false
+            duration_days: parseInt(formData.get('duration_days'))
         };
-
-        console.log('Данные для отправки:', data);
 
         try {
             const url = mode === 'create' 
@@ -202,7 +177,6 @@ class AdminSubscriptionsManager {
             });
 
             const result = await response.json();
-            console.log('📊 Ответ сервера:', result);
             
             if (result.success) {
                 this.showNotification(result.message, 'success');
@@ -212,7 +186,6 @@ class AdminSubscriptionsManager {
                 this.showNotification(result.error || 'Ошибка сервера', 'error');
             }
         } catch (error) {
-            console.error('Ошибка сохранения абонемента:', error);
             this.showNotification('Ошибка сохранения: ' + error.message, 'error');
         }
     }
@@ -232,7 +205,6 @@ class AdminSubscriptionsManager {
                 }
             }
         } catch (error) {
-            console.error('Ошибка загрузки данных абонемента:', error);
             this.showNotification('Ошибка загрузки данных', 'error');
         }
     }
@@ -252,7 +224,6 @@ class AdminSubscriptionsManager {
 
     async confirmDeleteSubscription(subscriptionId) {
         try {
-            console.log('🗑️ Удаляем абонемент:', subscriptionId);
             const response = await fetch(this.API_BASE_URL + '/admin/subscriptions/' + subscriptionId, {
                 method: 'DELETE',
                 headers: this.getAuthHeaders()
@@ -268,7 +239,6 @@ class AdminSubscriptionsManager {
                 this.showNotification(data.error, 'error');
             }
         } catch (error) {
-            console.error('Ошибка удаления абонемента:', error);
             this.showNotification('Ошибка удаления', 'error');
         }
     }
@@ -283,22 +253,20 @@ class AdminSubscriptionsManager {
         const notification = document.createElement('div');
         notification.className = `notification ${type}`;
         notification.textContent = message;
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 20px;
-            background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
-            color: white;
-            border-radius: 4px;
-            z-index: 10000;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        `;
         
         document.body.appendChild(notification);
         
         setTimeout(() => {
-            notification.remove();
+            notification.classList.add('show');
+        }, 10);
+        
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
         }, 3000);
     }
 }

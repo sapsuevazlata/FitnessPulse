@@ -1,55 +1,130 @@
-function formatDate(date) {
-    return new Date(date).toLocaleDateString('ru-RU', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
+// Глобальная функция для показа уведомлений
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.classList.add('show');
+    }, 10);
+    
+    const autoRemoveTimeout = setTimeout(() => {
+        if (notification.parentNode) {
+            notification.classList.remove('show');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }
+    }, 3000);
+    
+    notification.addEventListener('click', () => {
+        clearTimeout(autoRemoveTimeout);
+        notification.classList.remove('show');
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
     });
 }
 
-function formatTime(date) {
-    return new Date(date).toLocaleTimeString('ru-RU', {
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-}
+// Переопределяем стандартный alert
+window.alert = function(message) {
+    showNotification(message, 'info');
+};
 
-function isValidEmail(email) {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-}
-
-function generateId() {
-    return Date.now().toString(36) + Math.random().toString(36).substr(2);
-}
-
-function safeSetLocalStorage(key, value) {
-    try {
-        localStorage.setItem(key, JSON.stringify(value));
-        return true;
-    } catch (error) {
-        console.error('Ошибка сохранения в localStorage:', error);
-        return false;
-    }
-}
-
-function safeGetLocalStorage(key) {
-    try {
-        const item = localStorage.getItem(key);
-        return item ? JSON.parse(item) : null;
-    } catch (error) {
-        console.error('Ошибка чтения из localStorage:', error);
-        return null;
-    }
-}
-
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
+// Кастомная функция подтверждения
+function showConfirm(message, title = 'Подтверждение') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirm-modal');
+        const titleEl = document.getElementById('confirm-modal-title');
+        const messageEl = document.getElementById('confirm-modal-message');
+        const okBtn = document.getElementById('confirm-modal-ok');
+        const cancelBtn = document.getElementById('confirm-modal-cancel');
+        
+        if (!modal) {
+            // Если модальное окно не найдено, используем стандартный confirm
+            resolve(originalConfirm(message));
+            return;
+        }
+        
+        titleEl.textContent = title;
+        messageEl.textContent = message;
+        modal.style.display = 'block';
+        
+        const cleanup = () => {
+            modal.style.display = 'none';
+            okBtn.onclick = null;
+            cancelBtn.onclick = null;
         };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
+        
+        okBtn.onclick = () => {
+            cleanup();
+            resolve(true);
+        };
+        
+        cancelBtn.onclick = () => {
+            cleanup();
+            resolve(false);
+        };
+        
+        // Закрытие по клику вне модального окна
+        modal.onclick = (e) => {
+            if (e.target === modal) {
+                cleanup();
+                resolve(false);
+            }
+        };
+    });
 }
+
+// Сохраняем оригинальный confirm перед переопределением
+const originalConfirm = window.confirm;
+
+// Переопределяем стандартный confirm (возвращает Promise)
+window.confirm = function(message) {
+    const modal = document.getElementById('confirm-modal');
+    const titleEl = document.getElementById('confirm-modal-title');
+    const messageEl = document.getElementById('confirm-modal-message');
+    const okBtn = document.getElementById('confirm-modal-ok');
+    const cancelBtn = document.getElementById('confirm-modal-cancel');
+    
+    if (!modal || !titleEl || !messageEl || !okBtn || !cancelBtn) {
+        // Fallback на стандартный confirm, если модальное окно не найдено
+        return Promise.resolve(originalConfirm(message));
+    }
+    
+    titleEl.textContent = 'Подтверждение';
+    messageEl.textContent = message;
+    modal.style.display = 'block';
+    
+    return new Promise((resolve) => {
+        const cleanup = () => {
+            modal.style.display = 'none';
+            okBtn.onclick = null;
+            cancelBtn.onclick = null;
+            modal.onclick = null;
+        };
+        
+        okBtn.onclick = () => {
+            cleanup();
+            resolve(true);
+        };
+        
+        cancelBtn.onclick = () => {
+            cleanup();
+            resolve(false);
+        };
+        
+        modal.onclick = (e) => {
+            if (e.target === modal) {
+                cleanup();
+                resolve(false);
+            }
+        };
+    });
+};

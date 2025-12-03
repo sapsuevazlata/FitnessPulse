@@ -13,28 +13,28 @@ class NavigationManager {
             },
             client: {
                 navItems: [
-                    { section: 'dashboard', label: 'Главная' },
+                    { section: 'home', label: 'Главная' },
                     { section: 'group-classes', label: 'Групповые занятия' },
                     { section: 'trainers', label: 'Тренеры' },
+                    { section: 'trainings', label: 'Тренировки' },
                     { section: 'subscriptions', label: 'Абонементы' },
                     { section: 'my-bookings', label: 'Мои записи' }
                 ],
-                sections: ['dashboard', 'group-classes', 'trainers', 'subscriptions', 'my-bookings']
+                sections: ['home', 'group-classes', 'trainers', 'trainings', 'subscriptions', 'my-bookings']
             },
             trainer: {
                 navItems: [
-                    { section: 'dashboard', label: 'Главная' },
+                    { section: 'home', label: 'Главная' },
                     { section: 'clients', label: 'Мои клиенты' },
                     { section: 'trainer-schedule', label: 'Расписание' },
-                    { section: 'group-classes', label: 'Занятия' },
                     { section: 'profile', label: 'Профиль' },
                     { section: 'statistics', label: 'Статистика' }
                 ],
-                sections: ['dashboard', 'clients', 'trainer-schedule', 'group-classes', 'profile', 'statistics']
+                sections: ['home', 'clients', 'trainer-schedule', 'profile', 'statistics']
             },
             admin: {
                 navItems: [
-                    { section: 'dashboard', label: 'Главная' },
+                    { section: 'home', label: 'Главная' },
                     { section: 'trainers', label: 'Тренеры' },
                     { section: 'admin-trainer-schedule', label: 'Расписание тренеров' },
                     { section: 'group-classes', label: 'Занятия' },
@@ -43,7 +43,7 @@ class NavigationManager {
                     { section: 'reports', label: 'Отчеты' },
                     { section: 'settings', label: 'Настройки' }
                 ],
-                sections: ['dashboard', 'trainers', 'admin-trainer-schedule', 'group-classes', 'subscriptions', 'users', 'reports', 'settings']
+                sections: ['home', 'trainers', 'admin-trainer-schedule', 'group-classes', 'subscriptions', 'users', 'reports', 'settings']
             }
         };
     }
@@ -140,12 +140,14 @@ class NavigationManager {
             if (adminTrainersHeader) adminTrainersHeader.style.display = 'flex';
             if (trainersFilters) trainersFilters.style.display = 'none';
             if (trainersList) trainersList.style.display = 'none';
-            if (adminTrainersList) adminTrainersList.style.display = 'block';
+            if (adminTrainersList) {
+                adminTrainersList.style.display = 'grid';
+            }
         } else {
             if (trainersTitle) trainersTitle.style.display = 'block';
             if (adminTrainersHeader) adminTrainersHeader.style.display = 'none';
             if (trainersFilters) trainersFilters.style.display = 'block';
-            if (trainersList) trainersList.style.display = 'block';
+            if (trainersList) trainersList.style.display = 'grid';
             if (adminTrainersList) adminTrainersList.style.display = 'none';
         }
 
@@ -187,7 +189,6 @@ class NavigationManager {
         // Секция абонементов
         const subscriptionsTitle = document.getElementById('subscriptions-section-title');
         const adminSubscriptionsHeader = document.getElementById('admin-subscriptions-header');
-        const adminSubscriptionsStats = document.getElementById('admin-subscriptions-stats');
         const guestSubscriptionsFilters = document.getElementById('guest-subscriptions-filters');
         const subscriptionsList = document.getElementById('subscriptions-list');
         const adminSubscriptionsList = document.getElementById('admin-subscriptions-list');
@@ -196,7 +197,6 @@ class NavigationManager {
         if (role === 'admin') {
             if (subscriptionsTitle) subscriptionsTitle.style.display = 'none';
             if (adminSubscriptionsHeader) adminSubscriptionsHeader.style.display = 'flex';
-            if (adminSubscriptionsStats) adminSubscriptionsStats.style.display = 'flex';
             if (guestSubscriptionsFilters) guestSubscriptionsFilters.style.display = 'none';
             if (subscriptionsList) subscriptionsList.style.display = 'none';
             if (adminSubscriptionsList) adminSubscriptionsList.style.display = 'block';
@@ -204,7 +204,6 @@ class NavigationManager {
         } else if (role === 'client') {
             if (subscriptionsTitle) subscriptionsTitle.style.display = 'block';
             if (adminSubscriptionsHeader) adminSubscriptionsHeader.style.display = 'none';
-            if (adminSubscriptionsStats) adminSubscriptionsStats.style.display = 'none';
             if (guestSubscriptionsFilters) guestSubscriptionsFilters.style.display = 'block';
             if (subscriptionsList) subscriptionsList.style.display = 'none';
             if (adminSubscriptionsList) adminSubscriptionsList.style.display = 'none';
@@ -213,11 +212,25 @@ class NavigationManager {
             // Гость
             if (subscriptionsTitle) subscriptionsTitle.style.display = 'block';
             if (adminSubscriptionsHeader) adminSubscriptionsHeader.style.display = 'none';
-            if (adminSubscriptionsStats) adminSubscriptionsStats.style.display = 'none';
             if (guestSubscriptionsFilters) guestSubscriptionsFilters.style.display = 'block';
             if (subscriptionsList) subscriptionsList.style.display = 'block';
             if (adminSubscriptionsList) adminSubscriptionsList.style.display = 'none';
             if (clientSubscriptionsList) clientSubscriptionsList.style.display = 'none';
+        }
+
+        // Секция профиля
+        const clientProfileContent = document.getElementById('client-profile-content');
+        const trainerProfileContent = document.getElementById('trainer-profile-content');
+
+        if (role === 'client') {
+            if (clientProfileContent) clientProfileContent.style.display = 'block';
+            if (trainerProfileContent) trainerProfileContent.style.display = 'none';
+        } else if (role === 'trainer') {
+            if (clientProfileContent) clientProfileContent.style.display = 'none';
+            if (trainerProfileContent) trainerProfileContent.style.display = 'block';
+        } else {
+            if (clientProfileContent) clientProfileContent.style.display = 'none';
+            if (trainerProfileContent) trainerProfileContent.style.display = 'none';
         }
     }
 
@@ -281,8 +294,25 @@ class NavigationManager {
             catalogManager.loadTrainers();
         }
         
+        // Секция тренировок для клиента
+        if (sectionName === 'trainings' && role === 'client') {
+            // Инициализация уже происходит при загрузке страницы
+            if (typeof clientTrainingsManager !== 'undefined') {
+                clientTrainingsManager.init();
+            }
+        }
+        
         if (sectionName === 'group-classes' && typeof catalogManager !== 'undefined') {
-            catalogManager.loadGroupSessions();
+            // Каталог групповых занятий показываем только гостю и клиенту.
+            // Для администратора и тренера есть свои панели, поэтому гостевой список им скрываем.
+            if (!role || role === 'guest' || role === 'client') {
+                const guestList = document.getElementById('group-classes-list');
+                if (guestList) guestList.style.display = '';
+                catalogManager.loadGroupSessions();
+            } else {
+                const guestList = document.getElementById('group-classes-list');
+                if (guestList) guestList.style.display = 'none';
+            }
         }
 
         // Админ секции
@@ -300,10 +330,67 @@ class NavigationManager {
                 adminScheduleManager.init();
             }
             if (sectionName === 'subscriptions' && typeof adminSubscriptionsManager !== 'undefined') {
+                // Для админа показываем только админский список абонементов
+                const guestFilters = document.getElementById('guest-subscriptions-filters');
+                const guestList = document.getElementById('subscriptions-list');
+                const adminHeader = document.getElementById('admin-subscriptions-header');
+                const adminList = document.getElementById('admin-subscriptions-list');
+
+                if (guestFilters) guestFilters.style.display = 'none';
+                if (guestList) {
+                    guestList.style.display = 'none';
+                    guestList.innerHTML = '';
+                }
+                if (adminHeader) adminHeader.style.display = 'flex';
+                if (adminList) adminList.style.display = 'grid';
+
                 adminSubscriptionsManager.loadSubscriptions();
             }
             if (sectionName === 'settings' && typeof adminSettingsManager !== 'undefined') {
                 adminSettingsManager.loadAdminProfile();
+            }
+            if (sectionName === 'reports' && typeof adminReportsManager !== 'undefined') {
+                adminReportsManager.loadReports();
+            }
+        }
+
+        // Клиент/гость секции для абонементов
+        if (sectionName === 'subscriptions') {
+            const guestFilters = document.getElementById('guest-subscriptions-filters');
+            const guestList = document.getElementById('subscriptions-list');
+            const adminHeader = document.getElementById('admin-subscriptions-header');
+            const adminList = document.getElementById('admin-subscriptions-list');
+            const clientList = document.getElementById('client-subscriptions-list');
+
+            if (role === 'guest') {
+                // Гость: только общий каталог с кнопкой «Приобрести»
+                if (guestFilters) guestFilters.style.display = '';
+                if (guestList) guestList.style.display = '';
+                if (clientList) clientList.style.display = 'none';
+                if (adminHeader) adminHeader.style.display = 'none';
+                if (adminList) adminList.style.display = 'none';
+            } else if (role === 'client') {
+                // Клиент: только клиентский список, общий каталог скрываем
+                if (guestFilters) guestFilters.style.display = 'none';
+                if (guestList) guestList.style.display = 'none';
+                if (clientList) clientList.style.display = '';
+                if (adminHeader) adminHeader.style.display = 'none';
+                if (adminList) adminList.style.display = 'none';
+
+                if (typeof clientSubscriptionsManager !== 'undefined') {
+                    clientSubscriptionsManager.init();
+                }
+            }
+        }
+
+        // Клиент секции
+        if (role === 'client' && typeof clientSubscriptionsManager !== 'undefined') {
+            if (sectionName === 'profile') {
+                clientSubscriptionsManager.loadMySubscription();
+                clientSubscriptionsManager.loadClientProfile();
+            }
+            if (sectionName === 'my-bookings' && typeof clientBookingsManager !== 'undefined') {
+                clientBookingsManager.init();
             }
         }
 
@@ -314,6 +401,15 @@ class NavigationManager {
             }
             if (sectionName === 'group-classes') {
                 trainerManager.loadGroupSessions();
+            }
+            if (sectionName === 'clients') {
+                trainerManager.loadClients();
+            }
+            if (sectionName === 'profile' && typeof trainerProfileManager !== 'undefined') {
+                trainerProfileManager.init();
+            }
+            if (sectionName === 'statistics' && typeof trainerStatsManager !== 'undefined') {
+                trainerStatsManager.loadStats();
             }
         }
     }

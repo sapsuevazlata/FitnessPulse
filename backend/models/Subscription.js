@@ -9,12 +9,8 @@ class Subscription {
     }
 
     static async getActive() {
-        const [subscriptions] = await pool.execute(`
-            SELECT * FROM subscription_types 
-            WHERE is_active = TRUE 
-            ORDER BY price ASC
-        `);
-        return subscriptions;
+        // Для обратной совместимости - возвращаем все
+        return this.getAll();
     }
 
     static async findById(id) {
@@ -26,24 +22,22 @@ class Subscription {
     }
 
     static async create(subscriptionData) {
-        const { name, type, description, price, visits_count, duration_days, is_active = true } = subscriptionData;
-        const isActiveTinyint = is_active ? 1 : 0;
+        const { name, type, description, price, visits_count, duration_days } = subscriptionData;
         
         const [result] = await pool.execute(
-            'INSERT INTO subscription_types (name, type, description, price, visits_count, duration_days, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [name, type, description, price, visits_count, duration_days, isActiveTinyint]
+            'INSERT INTO subscription_types (name, type, description, price, visits_count, duration_days) VALUES (?, ?, ?, ?, ?, ?)',
+            [name, type, description, price, visits_count, duration_days]
         );
         
         return result.insertId;
     }
 
     static async update(id, subscriptionData) {
-        const { name, type, description, price, visits_count, duration_days, is_active } = subscriptionData;
-        const isActiveTinyint = is_active ? 1 : 0;
+        const { name, type, description, price, visits_count, duration_days } = subscriptionData;
         
         const [result] = await pool.execute(
-            'UPDATE subscription_types SET name = ?, type = ?, description = ?, price = ?, visits_count = ?, duration_days = ?, is_active = ? WHERE id = ?',
-            [name, type, description, price, visits_count, duration_days, isActiveTinyint, id]
+            'UPDATE subscription_types SET name = ?, type = ?, description = ?, price = ?, visits_count = ?, duration_days = ? WHERE id = ?',
+            [name, type, description, price, visits_count, duration_days, id]
         );
         
         return result.affectedRows > 0;

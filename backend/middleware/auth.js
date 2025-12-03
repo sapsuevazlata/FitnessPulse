@@ -19,8 +19,14 @@ const authenticateToken = (req, res, next) => {
 
 const requireRole = (role) => {
     return (req, res, next) => {
+        if (!req.user || !req.user.role) {
+            return res.status(403).json({ success: false, error: 'Роль пользователя не определена' });
+        }
         if (req.user.role !== role) {
-            return res.status(403).json({ success: false, error: 'Доступ запрещен' });
+            return res.status(403).json({ 
+                success: false, 
+                error: `Доступ запрещен. Требуется роль: ${role}, текущая роль: ${req.user.role}` 
+            });
         }
         next();
     };

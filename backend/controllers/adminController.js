@@ -7,7 +7,6 @@ const getUsers = async (req, res) => {
         const users = await User.getAll();
         res.json({ success: true, users });
     } catch (error) {
-        console.error('Ошибка получения пользователей:', error);
         res.status(500).json({ success: false, error: 'Ошибка сервера' });
     }
 };
@@ -67,7 +66,6 @@ const deleteUser = async (req, res) => {
 
     } catch (error) {
         await connection.rollback();
-        console.error('Ошибка удаления пользователя:', error);
         
         res.status(500).json({ 
             success: false, 
@@ -86,7 +84,6 @@ const getStats = async (req, res) => {
             stats: stats
         });
     } catch (error) {
-        console.error('Ошибка получения статистики:', error);
         res.status(500).json({ success: false, error: 'Ошибка сервера: ' + error.message });
     }
 };
@@ -101,7 +98,6 @@ const getProfile = async (req, res) => {
 
         res.json({ success: true, user: user });
     } catch (error) {
-        console.error('Ошибка получения профиля админа:', error);
         res.status(500).json({ success: false, error: 'Ошибка сервера' });
     }
 };
@@ -136,8 +132,53 @@ const updateProfile = async (req, res) => {
             user: user
         });
     } catch (error) {
-        console.error('Ошибка обновления профиля админа:', error);
         res.status(500).json({ success: false, error: 'Ошибка сервера' });
+    }
+};
+
+const getReportsStats = async (req, res) => {
+    try {
+        // Статистика покупок абонементов за последние 6 месяцев
+        const [subscriptionsStats] = await pool.execute(`
+            SELECT 
+                DATE_FORMAT(purchase_date, '%Y-%m') as month,
+                COUNT(*) as count
+            FROM user_subscriptions
+            WHERE purchase_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+            GROUP BY DATE_FORMAT(purchase_date, '%Y-%m')
+            ORDER BY month ASC
+        `);
+
+        // Статистика записей на групповые занятия за последние 6 месяцев
+        const [bookingsStats] = await pool.execute(`
+            SELECT 
+                DATE_FORMAT(booking_date, '%Y-%m') as month,
+                COUNT(*) as count
+            FROM bookings
+            WHERE booking_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+            GROUP BY DATE_FORMAT(booking_date, '%Y-%m')
+            ORDER BY month ASC
+        `);
+
+        // Статистика персональных тренировок за последние 6 месяцев
+        const [personalBookingsStats] = await pool.execute(`
+            SELECT 
+                DATE_FORMAT(booking_date, '%Y-%m') as month,
+                COUNT(*) as count
+            FROM personal_bookings
+            WHERE booking_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+            GROUP BY DATE_FORMAT(booking_date, '%Y-%m')
+            ORDER BY month ASC
+        `);
+
+        res.json({
+            success: true,
+            subscriptions: subscriptionsStats,
+            bookings: bookingsStats,
+            personalBookings: personalBookingsStats
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Ошибка сервера: ' + error.message });
     }
 };
 
@@ -146,5 +187,6 @@ module.exports = {
     deleteUser,
     getStats,
     getProfile,
-    updateProfile
+    updateProfile,
+    getReportsStats
 };

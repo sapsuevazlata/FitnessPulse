@@ -23,26 +23,45 @@ const normalizeTime = (value) => {
 };
 
 const addOneHour = (timeString) => {
-    const [hours, minutes] = timeString.split(':');
-    const date = new Date(2000, 0, 1, parseInt(hours, 10), parseInt(minutes, 10));
+    // timeString может быть в формате "HH:MM:SS" или "HH:MM"
+    const parts = timeString.split(':');
+    const hours = parseInt(parts[0], 10);
+    const minutes = parseInt(parts[1] || 0, 10);
+    const date = new Date(2000, 0, 1, hours, minutes);
     date.setHours(date.getHours() + 1);
-    return date.toTimeString().substring(0, 8);
+    return date.toTimeString().substring(0, 8); // Возвращает "HH:MM:SS"
 };
 
 const getTrainerSchedule = async (req, res) => {
     try {
-        const schedule = await TrainerSchedule.getAll();
+        const { trainer_id } = req.query;
+        
+        let schedule;
+        if (trainer_id) {
+            // Если указан trainer_id, возвращаем расписание конкретного тренера
+            schedule = await TrainerSchedule.findByTrainerId(trainer_id);
+        } else {
+            // Иначе возвращаем все расписания
+            schedule = await TrainerSchedule.getAll();
+        }
+        
         res.json({ success: true, schedule });
     } catch (error) {
-        console.error('Ошибка получения расписания тренеров:', error);
         res.status(500).json({ success: false, error: 'Ошибка сервера' });
     }
 };
 
 const createTrainerSchedule = async (req, res) => {
     try {
-        const adminId = req.user.userId;
+        const adminId = req.user?.userId;
         const { trainer_id, slots } = req.body;
+
+        if (!adminId) {
+            return res.status(401).json({
+                success: false,
+                error: 'Не авторизован'
+            });
+        }
 
         if (!trainer_id) {
             return res.status(400).json({
@@ -75,17 +94,23 @@ const createTrainerSchedule = async (req, res) => {
             }
             deduplicationSet.add(key);
 
-            const end = addOneHour(start.substring(0, 1));
+            const end = addOneHour(start);
 
             normalizedSlots.push({
                 day_of_week: day,
                 start_time: start,
                 end_time: end,
                 slot_type: 'personal',
-                max_slots: slot.max_slots || 1,
-                is_active: slot.is_active ?? 1
+                max_slots: slot.max_slots || 1
             });
         });
+
+        if (normalizedSlots.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Нет валидных слотов для сохранения'
+            });
+        }
 
         await TrainerSchedule.replaceTrainerSchedule(trainer_id, normalizedSlots, adminId);
 
@@ -95,7 +120,6 @@ const createTrainerSchedule = async (req, res) => {
             slots: normalizedSlots.length
         });
     } catch (error) {
-        console.error('Ошибка создания слота расписания:', error);
         res.status(500).json({ 
             success: false, 
             error: 'Ошибка сервера: ' + error.message 
@@ -142,7 +166,6 @@ const updateTrainerSchedule = async (req, res) => {
             message: 'Персональный слот расписания обновлен'
         });
     } catch (error) {
-        console.error('Ошибка обновления слота расписания:', error);
         res.status(500).json({ 
             success: false, 
             error: 'Ошибка сервера: ' + error.message 
@@ -167,7 +190,6 @@ const deleteTrainerSchedule = async (req, res) => {
             message: 'Слот удален' 
         });
     } catch (error) {
-        console.error('Ошибка удаления слота:', error);
         res.status(500).json({ 
             success: false, 
             error: 'Ошибка сервера' 
@@ -181,7 +203,6 @@ const getAvailableTrainers = async (req, res) => {
         const trainers = await Trainer.getAvailableForTime(getDayOfWeek(date), time);
         res.json({ success: true, trainers });
     } catch (error) {
-        console.error('Ошибка получения тренеров:', error);
         res.status(500).json({ success: false, error: 'Ошибка сервера' });
     }
 };

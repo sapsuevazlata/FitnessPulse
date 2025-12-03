@@ -1,44 +1,68 @@
 const API_BASE_URL = 'http://localhost:3000/api';
 
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('🔧 Страница загружена! Ищем формы...');
-    
     const loginForm = document.getElementById('loginForm');
     const registerForm = document.getElementById('register-form');
     
-    console.log('Форма логина:', loginForm);
-    console.log('Форма регистрации:', registerForm);
-    
     if (loginForm) {
         loginForm.addEventListener('submit', handleLogin);
-        console.log('Обработчик логина привязан');
-    } else {
-        console.log('Форма логина не найдена!');
     }
     
     if (registerForm) {
         registerForm.addEventListener('submit', handleRegister);
-        console.log('Обработчик регистрации привязан');
-    } else {
-        console.log('Форма регистрации не найдена!');
     }
+    
+    document.querySelectorAll('.modal .close').forEach(closeBtn => {
+        closeBtn.addEventListener('click', function() {
+            const modal = this.closest('.modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        });
+    });
+    
+    const goToRegisterLink = document.getElementById('go-to-register');
+    if (goToRegisterLink) {
+        goToRegisterLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            const loginModal = document.getElementById('login-modal');
+            const registerModal = document.getElementById('register-modal');
+            if (loginModal) loginModal.style.display = 'none';
+            if (registerModal) registerModal.style.display = 'block';
+        });
+    }
+    
+    const goToLoginLink = document.getElementById('go-to-login');
+    if (goToLoginLink) {
+        goToLoginLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            const loginModal = document.getElementById('login-modal');
+            const registerModal = document.getElementById('register-modal');
+            if (registerModal) registerModal.style.display = 'none';
+            if (loginModal) loginModal.style.display = 'block';
+        });
+    }
+    
+    window.addEventListener('click', function(e) {
+        const loginModal = document.getElementById('login-modal');
+        const registerModal = document.getElementById('register-modal');
+        
+        if (e.target === loginModal) {
+            loginModal.style.display = 'none';
+        }
+        if (e.target === registerModal) {
+            registerModal.style.display = 'none';
+        }
+    });
 });
 
 function redirectByRole(user) {
     if (!user || !user.role) {
-        alert('Ошибка: данные пользователя не получены');
+        showNotification('Ошибка: данные пользователя не получены', 'error');
         return;
     }
-    
-    // Вместо редиректа обновляем интерфейс
-    if (window.navigationManager) {
-        window.navigationManager.refresh();
-        
-        // Показываем dashboard для авторизованных пользователей
-        const role = user.role;
-        const defaultSection = role === 'guest' ? 'home' : 'dashboard';
-        window.navigationManager.showSection(defaultSection);
-    }
+
+    window.location.reload();
 }
 
 async function handleLogin(e) {
@@ -69,11 +93,10 @@ async function handleLogin(e) {
             redirectByRole(data.user);
             
         } else {
-            alert('Ошибка: ' + data.error);
+            showNotification('Ошибка: ' + data.error, 'error');
         }
     } catch (error) {
-        console.error('Ошибка сети:', error);
-        alert('Ошибка соединения с сервером');
+        showNotification('Ошибка соединения с сервером', 'error');
     }
 }
 
@@ -83,28 +106,43 @@ async function handleRegister(e) {
     const formData = new FormData(e.target);
     const name = formData.get('name');
     const email = formData.get('email');
+    const phone = formData.get('phone');
     const password = formData.get('password');
     const confirmPassword = formData.get('confirmPassword');
 
     if (!name || name.trim() === '') {
-        alert('Пожалуйста, заполните имя');
+        showNotification('Пожалуйста, заполните имя', 'warning');
         return;
     }
     if (!email || email.trim() === '') {
-        alert('Пожалуйста, заполните email');
+        showNotification('Пожалуйста, заполните email', 'warning');
         return;
     }
+    if (phone && phone.trim() !== '') {
+        const phoneRegex = /^\+375[0-9]{9}$/;
+        if (!phoneRegex.test(phone.trim())) {
+            showNotification('Номер телефона должен быть в формате +375XXXXXXXXX (например, +375291234567) или оставьте поле пустым', 'error');
+            return;
+        }
+    }
+    
     if (!password || password.trim() === '') {
-        alert('Пожалуйста, заполните пароль');
+        showNotification('Пожалуйста, заполните пароль', 'warning');
         return;
     }
+    
+    if (password.length < 8) {
+        showNotification('Пароль должен содержать минимум 8 символов', 'error');
+        return;
+    }
+    
     if (!confirmPassword || confirmPassword.trim() === '') {
-        alert('Пожалуйста, подтвердите пароль');
+        showNotification('Пожалуйста, подтвердите пароль', 'warning');
         return;
     }
 
     if (password !== confirmPassword) {
-        alert('Пароли не совпадают');
+        showNotification('Пароли не совпадают', 'error');
         return;
     }
 
@@ -116,7 +154,8 @@ async function handleRegister(e) {
             },
             body: JSON.stringify({ 
                 name: name.trim(),
-                email: email.trim(), 
+                email: email.trim(),
+                phone: phone ? phone.trim() : '',
                 password: password
             })
         });
@@ -124,7 +163,7 @@ async function handleRegister(e) {
         const data = await response.json();
         
         if (data.success) {
-            alert('Регистрация прошла успешно!');
+            showNotification('Регистрация прошла успешно!', 'success');
             
             localStorage.setItem('fitnessUser', JSON.stringify(data.user));
             localStorage.setItem('fitnessToken', data.token);
@@ -135,11 +174,10 @@ async function handleRegister(e) {
             redirectByRole(data.user);
             
         } else {
-            alert('Ошибка: ' + data.error);
+            showNotification('Ошибка: ' + data.error, 'error');
         }
     } catch (error) {
-        console.error('Ошибка сети:', error);
-        alert('Ошибка соединения с сервером');
+        showNotification('Ошибка соединения с сервером', 'error');
     }
 }
 
@@ -150,20 +188,10 @@ class Auth {
     }
     
     static logout() {
-        console.log('🔒 Выход из системы...');
-        
         localStorage.removeItem('fitnessUser');
         localStorage.removeItem('fitnessToken');
-        
-        console.log('Данные очищены');
-        
-        // Обновляем интерфейс вместо редиректа
-        if (window.navigationManager) {
-            window.navigationManager.refresh();
-            window.navigationManager.showSection('home');
-        } else {
-            window.location.replace('index.html');
-        }
+
+        window.location.reload();
     }
     
     static getToken() {
@@ -176,7 +204,6 @@ class Auth {
 }
 
 function logout() {
-    console.log('Кнопка выхода нажата!');
     Auth.logout();
     return false;
 }

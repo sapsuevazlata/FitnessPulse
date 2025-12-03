@@ -10,12 +10,10 @@ const pool = mysql.createPool({
 async function testDB() {
     try {
         const connection = await pool.getConnection();
-        console.log('Успешное подключение к MySQL');
-        const [tables] = await connection.execute('SHOW TABLES');
-        console.log('Таблицы в базе:', tables.map(t => t.Tables_in_fitnesshub));
+        await connection.execute('SHOW TABLES');
         connection.release();
     } catch (error) {
-        console.log('Ошибка подключения к MySQL:', error.message);
+        // Ошибка подключения к БД
     }
 }
 

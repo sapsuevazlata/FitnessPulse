@@ -12,8 +12,7 @@ class Trainer {
                 t.experience,
                 t.specialization,
                 t.bio,
-                t.rating,
-                t.is_active
+                t.rating
             FROM trainers t 
             JOIN users u ON t.user_id = u.id 
             ORDER BY t.id DESC
@@ -30,12 +29,10 @@ class Trainer {
                 t.specialization,
                 t.bio,
                 t.rating,
-                t.is_active,
                 u.name,
                 u.email
             FROM trainers t
             JOIN users u ON t.user_id = u.id
-            WHERE t.is_active = 1
             ORDER BY t.rating DESC
         `);
         return trainers;
@@ -69,11 +66,15 @@ class Trainer {
     }
 
     static async update(id, trainerData) {
-        const { experience, specialization, bio, is_active } = trainerData;
+        const { experience, specialization, bio } = trainerData;
+        
+        const experienceValue = experience !== undefined ? experience : null;
+        const specializationValue = specialization !== undefined ? specialization : null;
+        const bioValue = bio !== undefined ? bio : null;
         
         const [result] = await pool.execute(
-            'UPDATE trainers SET experience = ?, specialization = ?, bio = ?, is_active = ? WHERE id = ?',
-            [experience, specialization, bio, is_active, id]
+            'UPDATE trainers SET experience = ?, specialization = ?, bio = ? WHERE id = ?',
+            [experienceValue, specializationValue, bioValue, id]
         );
         
         return result.affectedRows > 0;
@@ -97,10 +98,9 @@ class Trainer {
             SELECT t.id, u.name, t.specialization
             FROM trainers t
             JOIN users u ON t.user_id = u.id
-            WHERE t.is_active = TRUE
             AND t.id NOT IN (
                 SELECT trainer_id FROM trainer_schedule 
-                WHERE day_of_week = ? AND start_time = ? AND is_active = TRUE
+                WHERE day_of_week = ? AND start_time = ?
             )
         `, [dayOfWeek, time]);
         

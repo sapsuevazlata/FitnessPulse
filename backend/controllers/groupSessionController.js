@@ -14,11 +14,8 @@ const getAllGroupSessions = async (req, res) => {
             duration: session.duration || 60,
             max_participants: session.max_participants || 10,
             current_participants: session.current_participants || 0,
-            is_active: Boolean(session.is_active),
             trainer_id: session.trainer_id || null,
-            trainer_name: session.trainer_name || null,
-            created_at: session.created_at,
-            updated_at: session.updated_at
+            trainer_name: session.trainer_name || null
         }));
         
         res.json({ 
@@ -27,7 +24,6 @@ const getAllGroupSessions = async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Ошибка получения групповых занятий:', error.message);
         res.status(500).json({ 
             success: false, 
             error: 'Ошибка сервера: ' + error.message
@@ -49,8 +45,7 @@ const getGroupSessionById = async (req, res) => {
         
         const formattedSession = {
             ...session,
-            time: formatTimeSimply(session.time),
-            is_active: Boolean(session.is_active)
+            time: formatTimeSimply(session.time)
         };
         
         res.json({ 
@@ -58,7 +53,6 @@ const getGroupSessionById = async (req, res) => {
             session: formattedSession 
         });
     } catch (error) {
-        console.error('Ошибка загрузки занятия:', error);
         res.status(500).json({ 
             success: false, 
             error: 'Ошибка сервера: ' + error.message 
@@ -77,6 +71,27 @@ const createGroupSession = async (req, res) => {
             });
         }
 
+        // Проверка на пересечение времени, если указан тренер
+        if (trainer_id) {
+            // Проверяем пересечение с другими групповыми занятиями
+            const hasGroupConflict = await GroupSession.checkTrainerTimeConflict(trainer_id, days, time, duration);
+            if (hasGroupConflict) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Тренер уже занят в это время другим групповым занятием'
+                });
+            }
+
+            // Проверяем пересечение с персональным расписанием тренера
+            const hasScheduleConflict = await GroupSession.checkTrainerScheduleConflict(trainer_id, days, time, duration);
+            if (hasScheduleConflict) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Тренер уже занят в это время персональной тренировкой'
+                });
+            }
+        }
+
         const sessionId = await GroupSession.create({ name, description, days, time, max_participants, duration, trainer_id });
         
         res.json({ 
@@ -85,7 +100,6 @@ const createGroupSession = async (req, res) => {
             sessionId: sessionId
         });
     } catch (error) {
-        console.error('Ошибка создания занятия:', error);
         res.status(500).json({ 
             success: false, 
             error: 'Ошибка сервера: ' + error.message 
@@ -96,9 +110,30 @@ const createGroupSession = async (req, res) => {
 const updateGroupSession = async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, description, days, time, max_participants, duration, is_active, trainer_id } = req.body;
+        const { name, description, days, time, max_participants, duration, trainer_id } = req.body;
         
-        const updated = await GroupSession.update(id, { name, description, days, time, max_participants, duration, is_active, trainer_id });
+        // Проверка на пересечение времени, если указан тренер
+        if (trainer_id) {
+            // Проверяем пересечение с другими групповыми занятиями
+            const hasGroupConflict = await GroupSession.checkTrainerTimeConflict(trainer_id, days, time, duration, id);
+            if (hasGroupConflict) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Тренер уже занят в это время другим групповым занятием'
+                });
+            }
+
+            // Проверяем пересечение с персональным расписанием тренера
+            const hasScheduleConflict = await GroupSession.checkTrainerScheduleConflict(trainer_id, days, time, duration);
+            if (hasScheduleConflict) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Тренер уже занят в это время персональной тренировкой'
+                });
+            }
+        }
+        
+        const updated = await GroupSession.update(id, { name, description, days, time, max_participants, duration, trainer_id });
         
         if (!updated) {
             return res.status(404).json({ 
@@ -112,7 +147,6 @@ const updateGroupSession = async (req, res) => {
             message: 'Занятие обновлено'
         });
     } catch (error) {
-        console.error('Ошибка обновления занятия:', error);
         res.status(500).json({ 
             success: false, 
             error: 'Ошибка сервера: ' + error.message 
@@ -135,7 +169,6 @@ const deleteGroupSession = async (req, res) => {
             session: session
         });
     } catch (error) {
-        console.error('Ошибка удаления занятия:', error);
         res.status(500).json({ success: false, error: 'Ошибка сервера' });
     }
 };
@@ -145,7 +178,6 @@ const getGroupSessionsList = async (req, res) => {
         const sessions = await GroupSession.getList();
         res.json({ success: true, sessions });
     } catch (error) {
-        console.error('Ошибка получения групповых занятий:', error);
         res.status(500).json({ success: false, error: 'Ошибка сервера' });
     }
 };

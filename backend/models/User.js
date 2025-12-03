@@ -12,7 +12,7 @@ class User {
 
     static async findById(id) {
         const [users] = await pool.execute(
-            'SELECT id, name, email, phone, role, created_at FROM users WHERE id = ?',
+            'SELECT id, name, email, phone, role FROM users WHERE id = ?',
             [id]
         );
         return users[0] || null;
@@ -22,9 +22,11 @@ class User {
         const { name, email, password, phone, role = 'client' } = userData;
         const hashedPassword = await bcrypt.hash(password, 10);
         
+        const phoneValue = (phone && String(phone).trim()) || null;
+        
         const [result] = await pool.execute(
             'INSERT INTO users (name, email, password, phone, role) VALUES (?, ?, ?, ?, ?)',
-            [name, email, hashedPassword, phone, role]
+            [name, email, hashedPassword, phoneValue, role]
         );
         
         return result.insertId;
@@ -33,8 +35,12 @@ class User {
     static async update(id, userData) {
         const { name, email, phone, password } = userData;
         
+        const nameValue = name !== undefined ? name : null;
+        const emailValue = email !== undefined ? email : null;
+        const phoneValue = phone !== undefined ? phone : null;
+        
         let updateQuery = 'UPDATE users SET name = ?, email = ?, phone = ?';
-        let queryParams = [name, email, phone];
+        let queryParams = [nameValue, emailValue, phoneValue];
 
         if (password) {
             const hashedPassword = await bcrypt.hash(password, 10);
@@ -56,9 +62,9 @@ class User {
 
     static async getAll() {
         const [users] = await pool.execute(`
-            SELECT id, name, email, phone, role, created_at 
+            SELECT id, name, email, phone, role 
             FROM users 
-            ORDER BY created_at DESC
+            ORDER BY id DESC
         `);
         return users;
     }

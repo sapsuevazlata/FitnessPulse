@@ -11,14 +11,12 @@ class AdminScheduleManager {
             { key: 'tuesday', label: 'Вторник', short: 'Вт' },
             { key: 'wednesday', label: 'Среда', short: 'Ср' },
             { key: 'thursday', label: 'Четверг', short: 'Чт' },
-            { key: 'friday', label: 'Пятница', short: 'Пт' },
-            { key: 'saturday', label: 'Суббота', short: 'Сб' },
-            { key: 'sunday', label: 'Воскресенье', short: 'Вс' }
+            { key: 'friday', label: 'Пятница', short: 'Пт' }
         ];
-        this.hours = this.generateHours(7, 21);
+        this.hours = this.generateHours(9, 21);
     }
 
-    generateHours(start = 7, end = 21) {
+    generateHours(start = 9, end = 21) {
         const hours = [];
         for (let h = start; h <= end; h++) {
             hours.push(`${h.toString().padStart(2, '0')}:00`);
@@ -109,7 +107,6 @@ class AdminScheduleManager {
                 this.showNotification('Ошибка загрузки расписания', 'error');
             }
         } catch (error) {
-            console.error('Ошибка загрузки расписания:', error);
             this.showNotification('Ошибка загрузки расписания', 'error');
         }
     }
@@ -122,8 +119,17 @@ class AdminScheduleManager {
             if (!this.scheduleMap[trainerId]) {
                 this.scheduleMap[trainerId] = this.createEmptyDayMap();
             }
-            const hour = slot.start_time.substring(0, 5);
-            this.scheduleMap[trainerId][slot.day_of_week].add(hour);
+            
+            // Проверяем, что день существует в this.days (только пн-пт для персональных занятий)
+            const dayExists = this.days.some(day => day.key === slot.day_of_week);
+            if (!dayExists) {
+                return;
+            }
+            
+            const hour = slot.start_time ? slot.start_time.substring(0, 5) : null;
+            if (hour && this.scheduleMap[trainerId][slot.day_of_week]) {
+                this.scheduleMap[trainerId][slot.day_of_week].add(hour);
+            }
         });
     }
 
@@ -259,7 +265,6 @@ class AdminScheduleManager {
                 this.trainers = data.trainers || [];
             }
         } catch (error) {
-            console.error('Ошибка загрузки тренеров:', error);
         }
     }
 
@@ -275,11 +280,11 @@ class AdminScheduleManager {
 
         select.innerHTML = this.trainers.map(trainer => `
             <option value="${trainer.id}">
-                ${trainer.name} ${trainer.is_active ? '' : '(неактивен)'}
+                ${trainer.name}
             </option>
         `).join('');
 
-        const firstActive = this.trainers.find(trainer => trainer.is_active) || this.trainers[0];
+        const firstActive = this.trainers[0];
         if (firstActive) {
             select.value = firstActive.id;
             this.selectTrainer(firstActive.id);
@@ -391,82 +396,40 @@ class AdminScheduleManager {
     }
 
     async saveCurrentSchedule() {
-    if (!this.currentTrainerId) {
-        this.showNotification('Выберите тренера', 'warning');
-        return;
-    }
+        if (!this.currentTrainerId) {
+            this.showNotification('Выберите тренера', 'warning');
+            return;
+        }
 
-    const slots = this.collectSlots(this.currentTrainerId);
-    
-    if (slots.length === 0) {
-        this.showNotification('Нет выбранных слотов для сохранения', 'warning');
-        return;
-    }
+        const slots = this.collectSlots(this.currentTrainerId);
+        
+        if (slots.length === 0) {
+            this.showNotification('Нет выбранных слотов для сохранения', 'warning');
+            return;
+        }
 
-    // Показываем индикатор прогресса
-    this.showProgressIndicator(slots.length);
+        try {
+            const response = await fetch(this.API_BASE_URL + '/admin/trainer-schedule', {
+                method: 'POST',
+                headers: this.getAuthHeaders(),
+                body: JSON.stringify({
+                    trainer_id: Number(this.currentTrainerId),
+                    slots: slots
+                })
+            });
 
-    try {
-        let successCount = 0;
-        let errorCount = 0;
-        let currentProgress = 0;
+            const data = await response.json();
 
-        for (const slot of slots) {
-            currentProgress++;
-            this.updateProgressIndicator(currentProgress, slots.length);
-
-            const slotData = {
-                trainer_id: Number(this.currentTrainerId),
-                day_of_week: slot.day_of_week,
-                start_time: slot.start_time + ':00',
-                end_time: this.calculateEndTime(slot.start_time)
-            };
-
-            try {
-                const response = await fetch(this.API_BASE_URL + '/admin/trainer-schedule', {
-                    method: 'POST',
-                    headers: this.getAuthHeaders(),
-                    body: JSON.stringify(slotData)
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    successCount++;
-                } else {
-                    errorCount++;
-                    console.error('❌ Ошибка сохранения слота:', data.error);
-                }
-            } catch (slotError) {
-                errorCount++;
-                console.error('❌ Ошибка сети:', slotError);
+            if (data.success) {
+                this.showNotification(`Расписание сохранено (${data.slots || slots.length} слотов)`, 'success');
+                await this.loadTrainerSchedule();
+            } else {
+                this.showNotification(data.error || 'Ошибка сохранения', 'error');
             }
-
-            // Небольшая пауза между запросами
-            await new Promise(resolve => setTimeout(resolve, 50));
+        } catch (error) {
+            this.showNotification('Ошибка сохранения: ' + error.message, 'error');
         }
-
-        // Скрываем индикатор прогресса
-        this.hideProgressIndicator();
-
-        // Показываем итог
-        if (errorCount === 0) {
-            this.showNotification(`✅ Успешно сохранено ${successCount} слотов`, 'success');
-        } else if (successCount === 0) {
-            this.showNotification(`❌ Не удалось сохранить ни одного слота (${errorCount} ошибок)`, 'error');
-        } else {
-            this.showNotification(`⚠️ Сохранено ${successCount} слотов, не удалось: ${errorCount}`, 'warning');
-        }
-
-        // Обновляем расписание
-        await this.loadTrainerSchedule();
-
-    } catch (error) {
-        this.hideProgressIndicator();
-        console.error('❌ Общая ошибка:', error);
-        this.showNotification('Ошибка сохранения: ' + error.message, 'error');
     }
-}
 
 // Методы для индикатора прогресса
 showProgressIndicator(total) {
@@ -547,22 +510,20 @@ calculateEndTime(startTime) {
         const notification = document.createElement('div');
         notification.className = `notification ${type}`;
         notification.textContent = message;
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 20px;
-            background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
-            color: white;
-            border-radius: 4px;
-            z-index: 10000;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        `;
         
         document.body.appendChild(notification);
         
         setTimeout(() => {
-            notification.remove();
+            notification.classList.add('show');
+        }, 10);
+        
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
         }, 3000);
     }
 }

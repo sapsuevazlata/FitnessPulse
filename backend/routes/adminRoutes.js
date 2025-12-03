@@ -4,7 +4,8 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const {
     getStats,
     getProfile,
-    updateProfile
+    updateProfile,
+    getReportsStats
 } = require('../controllers/adminController');
 const {
     getAllSubscriptions,
@@ -35,6 +36,7 @@ router.get('/available-trainers', authenticateToken, requireRole('admin'), getAv
 router.get('/group-sessions-list', authenticateToken, requireRole('admin'), getGroupSessionsList);
 router.get('/profile', authenticateToken, requireRole('admin'), getProfile);
 router.put('/profile', authenticateToken, requireRole('admin'), updateProfile);
+router.get('/reports', authenticateToken, requireRole('admin'), getReportsStats);
 
 module.exports = router;
 

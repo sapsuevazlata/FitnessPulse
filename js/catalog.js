@@ -2,26 +2,41 @@ class CatalogManager {
     constructor() {
         this.API_BASE_URL = 'http://localhost:3000/api';
         this.token = Auth.getToken();
+        this.groupSessionsCache = [];
+        this.subscriptionsCache = [];
         this.initFilters();
     }
 
+    getCurrentUserRole() {
+        const user = Auth.getCurrentUser();
+        return user && user.role ? user.role : 'guest';
+    }
+
+    isAdminUser() {
+        return this.getCurrentUserRole() === 'admin';
+    }
+
     getAuthHeaders() {
+        const token = Auth.getToken();
         return {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.token}`
+            'Authorization': `Bearer ${token}`
         };
     }
 
     init() {
+        const role = this.getCurrentUserRole();
         this.loadTrainers();
-        this.loadGroupSessions();
-        this.loadSubscriptions();
+        // Групповые занятия и абонементы в каталоге нужны только гостю и клиенту.
+        // Для админа и тренера есть свои отдельные панели.
+        if (!role || role === 'guest' || role === 'client') {
+            this.loadGroupSessions();
+            this.loadSubscriptions();
+        }
     }
 
     async loadTrainers() {
         try {
-            console.log('🔄 Загружаем список тренеров...');
-            
             const response = await fetch(this.API_BASE_URL + '/public/trainers');
             
             if (!response.ok) {
@@ -29,23 +44,20 @@ class CatalogManager {
             }
             
             const data = await response.json();
-            console.log('Получены данные тренеров:', data);
             
             if (data.success) {
-                this.renderTrainers(data.trainers);
+                await this.renderTrainers(data.trainers);
             } else {
                 this.showError('Ошибка загрузки тренеров');
             }
         } catch (error) {
-            console.error('Ошибка загрузки тренеров:', error);
             this.showError('Не удалось загрузить список тренеров');
         }
     }
 
-    renderTrainers(trainers) {
+    async renderTrainers(trainers) {
         const container = document.getElementById('trainers-list');
         if (!container) {
-            console.error('Контейнер тренеров не найден');
             return;
         }
 
@@ -54,20 +66,44 @@ class CatalogManager {
             return;
         }
 
-        container.innerHTML = trainers.map(trainer => this.renderTrainerCard(trainer)).join('');
+        // Рендерим карточки асинхронно
+        const cards = await Promise.all(trainers.map(trainer => this.renderTrainerCard(trainer)));
+        container.innerHTML = cards.join('');
     }
 
-    renderTrainerCard(trainer) {
+    async renderTrainerCard(trainer) {
         const firstLetter = trainer.name ? trainer.name.charAt(0).toUpperCase() : 'T';
-        const statusClass = trainer.is_active ? 'status-active' : 'status-inactive';
-        const statusText = trainer.is_active ? 'Активен' : 'Неактивен';
         const rating = trainer.rating || 0;
         const ratingStars = this.renderRatingStars(rating);
         
+        // Фото тренера берём из папки с изображениями по id тренера.
+        // Ожидается, что файлы лежат, например, в assets/images/trainers/trainer-<id>.jpg
+        // Если файл не найден, автоматически показывается круг с буквой имени.
+        const photoUrl = trainer.id ? `assets/images/trainers/trainer-${trainer.id}.jpg` : null;
+        
+        // Кнопка отзыва: всегда показываем клиенту, а проверку делаем при открытии модалки
+        let canReviewButton = '';
+        const user = Auth.getCurrentUser();
+        if (user && user.role === 'client') {
+            const safeName = (trainer.name || 'Тренер').replace(/'/g, "\\'");
+            canReviewButton = `
+                <button class="btn btn-primary btn-sm" 
+                        onclick="catalogManager.openReviewModal(${trainer.id}, '${safeName}')"
+                        style="margin-top: 0.5rem; width: 100%;">
+                    <i class="fas fa-star"></i> Оставить отзыв
+                </button>
+            `;
+        }
+        
         return `
-            <div class="trainer-card" data-trainer-id="${trainer.id}">
+            <div class="trainer-card" data-trainer-id="${trainer.id}" data-experience="${trainer.experience || ''}">
                 <div class="trainer-header">
-                    <div class="trainer-avatar">${firstLetter}</div>
+                    <div class="trainer-avatar-wrapper">
+                        ${photoUrl ? `
+                            <img src="${photoUrl}" alt="${trainer.name || 'Тренер'}" class="trainer-photo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+                        ` : ''}
+                        <div class="trainer-avatar" style="${photoUrl ? 'display:none;' : ''}">${firstLetter}</div>
+                    </div>
                     <div class="trainer-info">
                         <h3>${trainer.name || 'Тренер'}</h3>
                         <div class="trainer-rating">${ratingStars}</div>
@@ -84,11 +120,9 @@ class CatalogManager {
                     ${trainer.bio || 'Профессиональный тренер с индивидуальным подходом к каждому клиенту.'}
                 </div>
                 
-                <div class="trainer-footer">
-                    <span class="trainer-status ${statusClass}">
-                        <i class="fas fa-circle"></i> ${statusText}
-                    </span>
-                </div>
+                    <div class="trainer-footer">
+                        ${canReviewButton}
+                    </div>
             </div>
         `;
     }
@@ -124,18 +158,16 @@ class CatalogManager {
 
     async loadSubscriptions() {
         try {
-            console.log('Загружаем абонементы...');
-            
             const response = await fetch(this.API_BASE_URL + '/public/subscriptions');
             const data = await response.json();
             
             if (data.success) {
-                this.renderSubscriptions(data.subscriptions);
+                this.subscriptionsCache = data.subscriptions || [];
+                this.renderSubscriptions(this.subscriptionsCache);
             } else {
                 this.showSubscriptionsError('Ошибка загрузки абонементов');
             }
         } catch (error) {
-            console.error('Ошибка загрузки абонементов:', error);
             this.showSubscriptionsError('Не удалось загрузить список абонементов');
         }
     }
@@ -144,16 +176,21 @@ class CatalogManager {
         const container = document.getElementById('subscriptions-list');
         if (!container) return;
 
+        // Гостевой список абонементов нужен только для роли guest.
+        const role = this.getCurrentUserRole();
+        if (role !== 'guest') {
+            container.innerHTML = '';
+            return;
+        }
+
         if (!subscriptions || subscriptions.length === 0) {
             container.innerHTML = '<div class="loading">Абонементы не найдены</div>';
             return;
         }
 
         container.innerHTML = subscriptions.map(subscription => {
-            const isActive = Boolean(subscription.is_active);
-            
             return `
-                <div class="card subscription-card">
+                <div class="card subscription-card" data-subscription-type="${subscription.type}" data-subscription-price="${subscription.price || 0}">
                     <div class="card-content">
                         <div class="subscription-header">
                             <h3>${subscription.name}</h3>
@@ -166,8 +203,8 @@ class CatalogManager {
                         
                         <div class="subscription-details">
                             <div class="detail-item">
-                                <i class="fas fa-ruble-sign"></i>
-                                <span>${subscription.price} ₽</span>
+                                <i class="fas fa-coins"></i>
+                                <span>${subscription.price} Br</span>
                             </div>
                             <div class="detail-item">
                                 <i class="fas fa-ticket-alt"></i>
@@ -177,10 +214,6 @@ class CatalogManager {
                                 <i class="fas fa-calendar"></i>
                                 <span>${subscription.duration_days} дней</span>
                             </div>
-                        </div>
-
-                        <div class="subscription-status ${isActive ? 'active' : 'inactive'}">
-                            ${isActive ? '✅ Активен' : '❌ Неактивен'}
                         </div>
 
                         <div class="card-actions">
@@ -199,7 +232,7 @@ class CatalogManager {
             'group': 'Групповые',
             'gym': 'Зал', 
             'combo': 'Все включено',
-            'standard': 'Стандартный',
+            'standard': 'Стандарт',
             'premium': 'Премиум',
             'unlimited': 'Безлимитный'
         };
@@ -207,15 +240,19 @@ class CatalogManager {
     }
 
     handleSubscriptionAction(subscriptionId) {
+        if (this.isAdminUser()) {
+            showNotification('Администратор управляет абонементами через панель', 'info');
+            return;
+        }
+
         if (!Auth.getToken()) {
-            alert('Пожалуйста, войдите в систему для приобретения абонемента');
+            showNotification('Пожалуйста, войдите в систему для приобретения абонемента', 'warning');
             const loginBtn = document.getElementById('login-btn');
             if (loginBtn) loginBtn.click();
             return;
         }
         
-        console.log('🛒 Покупка абонемента:', subscriptionId);
-        alert('Функция покупки абонемента будет реализована позже');
+        showNotification('Функция покупки абонемента будет реализована позже', 'info');
     }
 
     showSubscriptionsError(message) {
@@ -227,8 +264,6 @@ class CatalogManager {
 
     async loadGroupSessions() {
         try {
-            console.log('Загружаем групповые занятия...');
-            
             const response = await fetch(this.API_BASE_URL + '/public/group-sessions');
             
             if (!response.ok) {
@@ -236,15 +271,14 @@ class CatalogManager {
             }
             
             const data = await response.json();
-            console.log('Получены данные занятий:', data);
             
             if (data.success) {
-                this.renderGroupSessions(data.sessions);
+                this.groupSessionsCache = data.sessions || [];
+                this.renderGroupSessions(this.groupSessionsCache);
             } else {
                 this.showGroupSessionsError('Ошибка загрузки занятий');
             }
         } catch (error) {
-            console.error('Ошибка загрузки занятий:', error);
             this.showGroupSessionsError('Не удалось загрузить список занятий');
         }
     }
@@ -252,7 +286,13 @@ class CatalogManager {
     renderGroupSessions(sessions) {
         const container = document.getElementById('group-classes-list');
         if (!container) {
-            console.error('Контейнер group-classes-list не найден');
+            return;
+        }
+
+        // Для админа и тренера гостевой список не отображаем – они работают через свои панели.
+        const role = this.getCurrentUserRole();
+        if (role === 'admin' || role === 'trainer') {
+            container.innerHTML = '';
             return;
         }
 
@@ -269,11 +309,12 @@ class CatalogManager {
         const daysText = days.map(day => this.getDayText(day)).join(', ');
         const availableSpots = session.max_participants - (session.current_participants || 0);
         const isFull = availableSpots <= 0;
+        const sessionName = session.name || 'Групповое занятие';
         
         return `
-            <div class="session-card" data-session-id="${session.id}">
+            <div class="session-card" data-session-id="${session.id}" data-session-name="${sessionName.toLowerCase()}">
                 <div class="session-header">
-                    <h3>${session.name || 'Групповое занятие'}</h3>
+                    <h3>${sessionName}</h3>
                     <span class="session-status ${isFull ? 'full' : 'available'}">
                         ${isFull ? 'Мест нет' : `${availableSpots} мест`}
                     </span>
@@ -332,17 +373,49 @@ class CatalogManager {
     }
 
     async bookSession(sessionId) {
-        if (!this.token) {
-            alert('Пожалуйста, войдите в систему для записи на занятия');
+        const token = Auth.getToken();
+        if (!token) {
+            showNotification('Пожалуйста, войдите в систему для записи на занятия', 'warning');
+            const loginBtn = document.getElementById('login-btn');
+            if (loginBtn) {
+                loginBtn.click();
+            }
+            return;
+        }
+        
+        const confirmed = await showConfirm('Вы уверены, что хотите записаться на это занятие? Будет использовано одно посещение из вашего абонемента.');
+        if (!confirmed) {
             return;
         }
         
         try {
-            console.log('📝 Запись на занятие:', sessionId);
-            alert('Функция записи на занятие будет реализована позже');
+            const response = await fetch(this.API_BASE_URL + '/bookings/book', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    session_id: sessionId
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showNotification(`Вы успешно записаны на занятие! Осталось посещений: ${data.remainingVisits}`, 'success');
+                // Обновляем список занятий
+                this.loadGroupSessions();
+                // Обновляем записи клиента, если менеджер существует
+                if (typeof clientBookingsManager !== 'undefined') {
+                    clientBookingsManager.loadBookings();
+                    clientBookingsManager.loadSubscriptions();
+                }
+            } else {
+                showNotification(data.error || 'Ошибка при записи на занятие', 'error');
+            }
         } catch (error) {
-            console.error('Ошибка записи:', error);
-            alert('Ошибка при записи на занятие');
+            showNotification('Ошибка при записи на занятие: ' + error.message, 'error');
         }
     }
 
@@ -355,33 +428,284 @@ class CatalogManager {
     
     initFilters() {
         const experienceFilter = document.getElementById('experience-filter');
-        const specializationFilter = document.getElementById('specialization-filter');
-        const typeFilter = document.getElementById('type-filter');
-        const sortPrice = document.getElementById('sort-price');
+        const subscriptionCategoryFilter = document.getElementById('subscription-category-filter');
+        const subscriptionTypeFilter = document.getElementById('subscription-type-filter');
+        const subscriptionSortFilter = document.getElementById('subscription-sort-filter');
+        const groupClassesSearch = document.getElementById('group-classes-search');
         
         if (experienceFilter) {
             experienceFilter.addEventListener('change', () => this.filterTrainers());
         }
         
-        if (specializationFilter) {
-            specializationFilter.addEventListener('change', () => this.filterTrainers());
+        if (subscriptionCategoryFilter) {
+            subscriptionCategoryFilter.addEventListener('change', () => this.filterSubscriptions());
         }
 
-        if (typeFilter) {
-            typeFilter.addEventListener('change', () => this.filterSessions());
+        if (subscriptionTypeFilter) {
+            subscriptionTypeFilter.addEventListener('change', () => this.filterSubscriptions());
         }
 
-        if (sortPrice) {
-            sortPrice.addEventListener('change', () => this.filterSessions());
+        if (subscriptionSortFilter) {
+            subscriptionSortFilter.addEventListener('change', () => this.sortSubscriptions());
+        }
+
+        if (groupClassesSearch) {
+            groupClassesSearch.addEventListener('input', () => this.filterGroupSessions());
+        }
+    }
+
+    // Открыть модальное окно для отзыва
+    async openReviewModal(trainerId, trainerName) {
+        const user = Auth.getCurrentUser();
+        if (!user || user.role !== 'client') {
+            showNotification('Для оставления отзыва необходимо войти как клиент', 'warning');
+            return;
+        }
+
+        try {
+            // Сначала проверяем, может ли пользователь оставить отзыв
+            const response = await fetch(`${this.API_BASE_URL}/reviews/can-leave/${trainerId}`, {
+                headers: this.getAuthHeaders()
+            });
+
+            if (!response.ok) {
+                throw new Error('Ошибка проверки возможности оставить отзыв');
+            }
+
+            const data = await response.json();
+
+            // Если нельзя оставить новый отзыв — покажем причину, но всё равно отобразим список существующих отзывов
+            if (!data.success || !data.canLeaveReview) {
+                if (!data.hasBooking) {
+                    showNotification('Вы можете оставить новый отзыв только тренеру, у которого была запись на персональную или групповую тренировку', 'warning');
+                } else if (data.hasReview) {
+                    showNotification('Вы уже оставили отзыв этому тренеру. Вы можете просмотреть свои и другие отзывы.', 'info');
+                }
+            }
+
+            // Загружаем список отзывов тренера
+            const reviewsResponse = await fetch(`${this.API_BASE_URL}/reviews/trainer/${trainerId}`);
+            let reviewsData = { success: false, reviews: [], count: 0, avgRating: null };
+            if (reviewsResponse.ok) {
+                reviewsData = await reviewsResponse.json();
+            }
+
+            // Открываем модальное окно
+            const modal = document.getElementById('review-modal');
+            if (modal) {
+                // Заголовок и сводка
+                const trainerNameEl = document.getElementById('review-trainer-name');
+                const summaryEl = document.getElementById('review-summary-text');
+                const listEl = document.getElementById('review-list');
+
+                if (trainerNameEl) {
+                    trainerNameEl.textContent = trainerName;
+                }
+
+                // Рендерим сводку по рейтингу
+                if (summaryEl) {
+                    if (reviewsData.success && reviewsData.count > 0) {
+                        const count = reviewsData.count;
+                        const avg = reviewsData.avgRating || '—';
+                        summaryEl.textContent = `Средний рейтинг: ${avg} из 5 • Отзывов: ${count}`;
+                    } else {
+                        summaryEl.textContent = 'Отзывов пока нет — будьте первым!';
+                    }
+                }
+
+                // Рендерим список отзывов
+                if (listEl) {
+                    if (reviewsData.success && reviewsData.reviews && reviewsData.reviews.length > 0) {
+                        listEl.innerHTML = reviewsData.reviews.map(r => {
+                            const userName = r.user_name || 'Клиент';
+                            const rating = r.rating || 0;
+                            const comment = r.comment || '';
+                            const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+
+                            return `
+                                <div class="review-item" style="padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                                        <strong>${userName}</strong>
+                                        <span style="font-size: 0.85rem; color: #f5c518;">${stars}</span>
+                                    </div>
+                                    ${comment ? `<div style="font-size: 0.9rem; color: var(--text-muted);">${comment}</div>` : ''}
+                                </div>
+                            `;
+                        }).join('');
+                    } else {
+                        listEl.innerHTML = '<div style="font-size: 0.9rem; color: var(--text-muted);">Отзывов пока нет.</div>';
+                    }
+                }
+
+                // Заполняем форму для нового отзыва
+                document.getElementById('review-trainer-id').value = trainerId;
+                document.getElementById('review-rating').value = '5';
+                document.getElementById('review-comment').value = '';
+                modal.style.display = 'block';
+            }
+        } catch (error) {
+            showNotification('Ошибка при открытии формы отзыва', 'error');
+        }
+    }
+
+    // Закрыть модальное окно отзыва
+    closeReviewModal() {
+        const modal = document.getElementById('review-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    // Отправить отзыв
+    async submitReview(e) {
+        e.preventDefault();
+        const form = e.target;
+        const formData = new FormData(form);
+        
+        const trainerId = parseInt(formData.get('trainer_id'));
+        const rating = parseInt(formData.get('rating'));
+        const comment = formData.get('comment');
+
+        if (!trainerId || !rating) {
+            showNotification('Заполните все обязательные поля', 'warning');
+            return;
+        }
+
+        if (rating < 1 || rating > 5) {
+            showNotification('Оценка должна быть от 1 до 5', 'warning');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${this.API_BASE_URL}/reviews/create`, {
+                method: 'POST',
+                headers: this.getAuthHeaders(),
+                body: JSON.stringify({
+                    trainer_id: trainerId,
+                    rating: rating,
+                    comment: comment
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showNotification('Отзыв успешно добавлен!', 'success');
+                this.closeReviewModal();
+                // Перезагружаем список тренеров для обновления рейтинга
+                this.loadTrainers();
+            } else {
+                showNotification(data.error || 'Ошибка при добавлении отзыва', 'error');
+            }
+        } catch (error) {
+            showNotification('Ошибка при отправке отзыва', 'error');
         }
     }
 
     filterTrainers() {
-        console.log('Фильтрация тренеров...');
+        const experienceFilter = document.getElementById('experience-filter');
+        const experienceValue = experienceFilter ? experienceFilter.value : '';
+        
+        const trainers = Array.from(document.querySelectorAll('.trainer-card'));
+        
+        trainers.forEach(card => {
+            const trainerExperience = card.dataset.experience || '';
+            let show = true;
+            
+            if (experienceValue) {
+                if (experienceValue === '1-3' && !trainerExperience.includes('1-3')) {
+                    show = false;
+                } else if (experienceValue === '3-5' && !trainerExperience.includes('3-5')) {
+                    show = false;
+                } else if (experienceValue === '5+' && !trainerExperience.includes('5+')) {
+                    show = false;
+                }
+            }
+            
+            card.style.display = show ? 'block' : 'none';
+        });
     }
 
-    filterSessions() {
-        console.log('Фильтрация занятий...');
+    filterSubscriptions() {
+        const categoryFilter = document.getElementById('subscription-category-filter');
+        const typeFilter = document.getElementById('subscription-type-filter');
+        const categoryValue = categoryFilter ? categoryFilter.value.toLowerCase() : '';
+        const typeValue = typeFilter ? typeFilter.value : '';
+        
+        const subscriptions = Array.from(document.querySelectorAll('.subscription-card'));
+        
+        subscriptions.forEach(card => {
+            const subscriptionName = (card.querySelector('h3')?.textContent || '').toLowerCase();
+            const subscriptionType = card.dataset.subscriptionType || '';
+            let show = true;
+            
+            if (categoryValue) {
+                if (!subscriptionName.includes(categoryValue)) {
+                    show = false;
+                }
+            }
+            
+            if (typeValue && subscriptionType !== typeValue) {
+                show = false;
+            }
+            
+            card.style.display = show ? 'block' : 'none';
+        });
+        
+        // Применяем сортировку после фильтрации
+        this.sortSubscriptions();
+    }
+
+    sortSubscriptions() {
+        const sortFilter = document.getElementById('subscription-sort-filter');
+        const sortValue = sortFilter ? sortFilter.value : '';
+        
+        if (!sortValue) {
+            return; // Если сортировка не выбрана, не меняем порядок
+        }
+        
+        const container = document.getElementById('subscriptions-list');
+        if (!container) return;
+        
+        const subscriptions = Array.from(container.querySelectorAll('.subscription-card'));
+        
+        // Сортируем карточки
+        subscriptions.sort((a, b) => {
+            const priceA = parseFloat(a.dataset.subscriptionPrice || 0);
+            const priceB = parseFloat(b.dataset.subscriptionPrice || 0);
+            
+            if (sortValue === 'price-asc') {
+                return priceA - priceB;
+            } else if (sortValue === 'price-desc') {
+                return priceB - priceA;
+            }
+            return 0;
+        });
+        
+        // Переставляем карточки в DOM
+        subscriptions.forEach(card => {
+            container.appendChild(card);
+        });
+    }
+
+    filterGroupSessions() {
+        const searchInput = document.getElementById('group-classes-search');
+        const searchValue = searchInput ? searchInput.value.toLowerCase().trim() : '';
+        
+        const sessions = Array.from(document.querySelectorAll('.session-card'));
+        
+        sessions.forEach(card => {
+            const sessionName = card.dataset.sessionName || (card.querySelector('h3')?.textContent || '').toLowerCase();
+            let show = true;
+            
+            if (searchValue) {
+                if (!sessionName.includes(searchValue)) {
+                    show = false;
+                }
+            }
+            
+            card.style.display = show ? 'block' : 'none';
+        });
     }
 }
 

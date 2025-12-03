@@ -4,12 +4,39 @@ const User = require('../models/User');
 
 const register = async (req, res) => {
     try {
-        const { name, email, password, role = 'client' } = req.body;
+        const { name, email, phone, password, role = 'client' } = req.body;
         
+        // Проверка обязательных полей (телефон необязателен)
         if (!name || !email || !password) {
             return res.status(400).json({ 
                 success: false,
-                error: 'Все поля обязательны' 
+                error: 'Все поля обязательны (имя, email, пароль). Телефон необязателен.' 
+            });
+        }
+        
+        // Обработка и валидация телефона (необязательное поле)
+        let phoneTrimmed = null;
+        if (phone) {
+            phoneTrimmed = String(phone).trim();
+            // Если телефон введен, проверяем формат
+            if (phoneTrimmed !== '') {
+                const phoneRegex = /^\+375[0-9]{9}$/;
+                if (!phoneRegex.test(phoneTrimmed)) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Номер телефона должен быть в формате +375XXXXXXXXX (например, +375291234567) или оставьте поле пустым'
+                    });
+                }
+            } else {
+                phoneTrimmed = null;
+            }
+        }
+        
+        // Валидация длины пароля (минимум 8 символов)
+        if (password.length < 8) {
+            return res.status(400).json({
+                success: false,
+                error: 'Пароль должен содержать минимум 8 символов'
             });
         }
 
@@ -22,7 +49,8 @@ const register = async (req, res) => {
             });
         }
 
-        const userId = await User.create({ name, email, password, role });
+        // Передаем phone как строку (всегда есть после валидации)
+        const userId = await User.create({ name, email, phone: phoneTrimmed, password, role });
         
         const token = jwt.sign(
             { 
@@ -47,7 +75,6 @@ const register = async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Ошибка регистрации:', error);
         res.status(500).json({ 
             success: false,
             error: 'Ошибка сервера: ' + error.message 
@@ -107,7 +134,6 @@ const login = async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Ошибка логина:', error);
         res.status(500).json({ 
             success: false,
             error: 'Ошибка сервера: ' + error.message 

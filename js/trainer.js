@@ -1,75 +1,62 @@
 class TrainerManager {
     constructor() {
-        console.log('TrainerManager создан');
-        this.token = Auth.getToken();
         this.API_BASE_URL = 'http://localhost:3000/api';
         this.currentUser = Auth.getCurrentUser();
     }
 
     getAuthHeaders() {
-        return {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.token}`
+        const token = Auth.getToken();
+        const headers = {
+            'Content-Type': 'application/json'
         };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        return headers;
     }
 
     init() {
-        console.log('🔧 Инициализация кабинета тренера...');
         this.loadSchedule();
         this.loadGroupSessions();
-        this.loadClients();
     }
 
     async loadSchedule() {
         try {
-            console.log('Загружаем расписание...');
-            
             const response = await fetch(this.API_BASE_URL + '/trainer/schedule', {
                 headers: this.getAuthHeaders()
             });
             
             const data = await response.json();
-            console.log('Данные расписания:', data);
             
             if (data.success) {
-                console.log('Расписание загружено, элементов:', data.schedule?.length);
                 this.renderSchedule(data.schedule);
             } else {
-                console.error('Ошибка в данных:', data.error);
                 this.showNotification('Ошибка загрузки расписания', 'error');
             }
         } catch (error) {
-            console.error('Ошибка загрузки расписания:', error);
             this.showNotification('Ошибка загрузки расписания', 'error');
         }
     }
 
     async loadGroupSessions() {
         try {
-            console.log('🔄 Загружаем групповые занятия...');
-            
             const response = await fetch(this.API_BASE_URL + '/trainer/group-sessions', {
                 headers: this.getAuthHeaders()
             });
             
             const data = await response.json();
-            console.log('Получены group_sessions:', data);
             
             if (data.success) {
                 this.renderGroupSessionsInSchedule(data.sessions);
                 this.renderGroupSessionsInClasses(data.sessions);
-            } else {
-                console.error('Ошибка загрузки group_sessions:', data.error);
             }
         } catch (error) {
-            console.error('Ошибка загрузки group_sessions:', error);
         }
     }
 
     renderGroupSessionsInSchedule(sessions) {
         const container = document.getElementById('trainer-group-sessions');
         if (!container) {
-            console.error('Контейнер trainer-group-sessions не найден');
             return;
         }
 
@@ -92,7 +79,6 @@ class TrainerManager {
     renderGroupSessionsInClasses(sessions) {
         const container = document.getElementById('trainer-group-classes-list');
         if (!container) {
-            console.error('Элемент trainer-group-classes-list не найден!');
             return;
         }
 
@@ -109,7 +95,6 @@ class TrainerManager {
                 <p><strong>Время:</strong> ${session.time || 'Не указано'}</p>
                 <p><strong>Длительность:</strong> ${session.duration || 0} мин.</p>
                 <p><strong>Участников:</strong> ${session.current_participants || 0}/${session.max_participants || 0}</p>
-                <p><strong>Статус:</strong> ${session.is_active ? 'Активно' : 'Неактивно'}</p>
             </div>
         `).join('');
     }
@@ -119,10 +104,9 @@ class TrainerManager {
         const daysText = days.map(day => this.getDayText(day)).join(', ');
         const availableSpots = session.max_participants - (session.current_participants || 0);
         const isFull = availableSpots <= 0;
-        const statusClass = session.is_active ? 'active' : 'inactive';
         
         return `
-            <div class="card group-session-card ${statusClass}" data-session-id="${session.id}">
+            <div class="card group-session-card" data-session-id="${session.id}">
                 <div class="session-header">
                     <div class="session-info">
                         <h4>${session.name || 'Групповое занятие'}</h4>
@@ -130,9 +114,6 @@ class TrainerManager {
                             ${isFull ? '🔴 Мест нет' : '🟢 Доступно'}
                         </span>
                     </div>
-                    <span class="session-badge ${statusClass}">
-                        ${session.is_active ? 'Активно' : 'Неактивно'}
-                    </span>
                 </div>
                 
                 <div class="session-description">
@@ -191,6 +172,7 @@ class TrainerManager {
             return;
         }
 
+        // Группируем слоты по дням и сортируем по времени
         const days = {
             monday: { name: 'Понедельник', slots: [] },
             tuesday: { name: 'Вторник', slots: [] },
@@ -207,18 +189,40 @@ class TrainerManager {
             }
         });
 
+        // Сортируем слоты по времени начала
+        Object.values(days).forEach(day => {
+            day.slots.sort((a, b) => {
+                const timeA = a.start_time || '';
+                const timeB = b.start_time || '';
+                return timeA.localeCompare(timeB);
+            });
+        });
+
+        const totalHours = schedule.length;
+        const uniqueDays = new Set(schedule.map(s => s.day_of_week)).size;
+
         container.innerHTML = `
             <div class="schedule-header">
                 <h3>Мое расписание</h3>
+                <div class="schedule-stats">
+                    <span class="stat-badge">
+                        <i class="fas fa-calendar"></i> ${uniqueDays} дней в неделю
+                    </span>
+                    <span class="stat-badge">
+                        <i class="fas fa-clock"></i> ${totalHours} часов
+                    </span>
+                </div>
             </div>
-            <div class="schedule-grid">
+            <div class="weekly-schedule">
                 ${Object.values(days).map(day => `
-                    <div class="schedule-day ${day.slots.length > 0 ? 'has-slots' : 'no-slots'}">
-                        <h4>${day.name}</h4>
-                        ${day.slots.length > 0 ? 
-                            day.slots.map(slot => this.renderScheduleSlot(slot)).join('') :
-                            '<p class="no-slots-text">Нет запланированных занятий</p>'
-                        }
+                    <div class="day-column ${day.slots.length > 0 ? 'has-slots' : 'no-slots'}">
+                        <div class="day-header">${day.name}</div>
+                        <div class="day-slots">
+                            ${day.slots.length > 0 ? 
+                                day.slots.map(slot => this.renderScheduleSlot(slot)).join('') :
+                                '<div class="no-slots-message">Нет занятий</div>'
+                            }
+                        </div>
                     </div>
                 `).join('')}
             </div>
@@ -226,18 +230,16 @@ class TrainerManager {
     }
 
     renderScheduleSlot(slot) {
-        const startTime = slot.start_time.substring(0, 5);
-        const endTime = slot.end_time.substring(0, 5);
-        const availableSlots = slot.max_slots - (slot.booked_slots || 0);
+        const startTime = slot.start_time ? slot.start_time.substring(0, 5) : '';
+        const endTime = slot.end_time ? slot.end_time.substring(0, 5) : '';
         const isPersonal = slot.slot_type === 'personal';
         
         return `
-            <div class="schedule-slot ${slot.is_active ? 'active' : 'inactive'} ${isPersonal ? 'personal' : 'group'}">
-                <div class="slot-time">${startTime} - ${endTime}</div>
-                <div class="slot-type">${isPersonal ? 'Персональная тренировка' : 'Групповое занятие'}</div>
+            <div class="schedule-slot personal">
+                <div class="slot-time">${startTime} — ${endTime}</div>
                 <div class="slot-info">
-                    <span class="slots-count">${availableSlots}/${slot.max_slots} мест</span>
-                    <span class="slot-status">${slot.is_active ? 'Активен' : 'Неактивен'}</span>
+                    <span class="slot-type-badge">1 час</span>
+                    ${slot.max_slots ? `<span class="slots-count">${slot.max_slots} мест</span>` : ''}
                 </div>
             </div>
         `;
@@ -261,42 +263,15 @@ class TrainerManager {
         notification.className = `notification ${type}`;
         notification.textContent = message;
         
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 20px;
-            background: ${this.getNotificationColor(type)};
-            color: white;
-            border-radius: 4px;
-            z-index: 10000;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            max-width: 400px;
-            word-wrap: break-word;
-            transition: all 0.3s ease;
-            transform: translateX(100%);
-            opacity: 0;
-        `;
-        
-        const icon = this.getNotificationIcon(type);
-        if (icon) {
-            notification.innerHTML = `
-                <i class="${icon}" style="margin-right: 8px;"></i>
-                ${message}
-            `;
-        }
-        
         document.body.appendChild(notification);
         
         setTimeout(() => {
-            notification.style.transform = 'translateX(0)';
-            notification.style.opacity = '1';
-        }, 100);
+            notification.classList.add('show');
+        }, 10);
         
         const autoRemoveTimeout = setTimeout(() => {
             if (notification.parentNode) {
-                notification.style.transform = 'translateX(100%)';
-                notification.style.opacity = '0';
+                notification.classList.remove('show');
                 setTimeout(() => {
                     if (notification.parentNode) {
                         notification.parentNode.removeChild(notification);
@@ -307,8 +282,7 @@ class TrainerManager {
         
         notification.addEventListener('click', () => {
             clearTimeout(autoRemoveTimeout);
-            notification.style.transform = 'translateX(100%)';
-            notification.style.opacity = '0';
+            notification.classList.remove('show');
             setTimeout(() => {
                 if (notification.parentNode) {
                     notification.parentNode.removeChild(notification);
@@ -338,7 +312,174 @@ class TrainerManager {
     }
 
     async loadClients() {
-        console.log('Загрузка клиентов...');
+        try {
+            const response = await fetch(this.API_BASE_URL + '/trainer/clients', {
+                headers: this.getAuthHeaders()
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                this.renderClients(data.bookings);
+            } else {
+                this.showNotification('Ошибка загрузки клиентов: ' + (data.error || 'неизвестная ошибка'), 'error');
+            }
+        } catch (error) {
+            this.showNotification('Ошибка загрузки клиентов: ' + error.message, 'error');
+        }
+    }
+
+    renderClients(bookings) {
+        const container = document.getElementById('trainer-clients-list');
+        if (!container) {
+            return;
+        }
+
+        if (!bookings || bookings.length === 0) {
+            container.innerHTML = `
+                <div class="card">
+                    <div class="empty-state">
+                        <i class="fas fa-users fa-2x"></i>
+                        <p>У вас пока нет записей</p>
+                        <small>Записи клиентов на индивидуальные тренировки будут отображаться здесь</small>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        // Сортируем записи: сначала предстоящие, потом прошедшие
+        const sortedBookings = bookings.sort((a, b) => {
+            const dateA = new Date(a.booking_date + 'T' + (a.booking_time || '00:00:00'));
+            const dateB = new Date(b.booking_date + 'T' + (b.booking_time || '00:00:00'));
+            return dateA - dateB;
+        });
+
+        const upcomingBookings = sortedBookings.filter(b => {
+            const bookingDate = new Date(b.booking_date + 'T' + (b.booking_time || '00:00:00'));
+            const isUpcoming = bookingDate >= new Date() && b.status !== 'cancelled';
+            return isUpcoming;
+        });
+
+        const pastBookings = sortedBookings.filter(b => {
+            const bookingDate = new Date(b.booking_date + 'T' + (b.booking_time || '00:00:00'));
+            return bookingDate < new Date() || b.status === 'cancelled';
+        });
+
+        let html = '';
+
+        if (upcomingBookings.length > 0) {
+            html += `
+                <div style="margin-bottom: 2rem;">
+                    <h3 style="margin-bottom: 1rem; color: white; display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fas fa-calendar-check" style="color: var(--success-color);"></i>
+                        Предстоящие записи (${upcomingBookings.length})
+                    </h3>
+                    <div style="display: grid; gap: 1rem;">
+                        ${upcomingBookings.map(booking => this.renderBookingCard(booking, false)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        if (pastBookings.length > 0) {
+            html += `
+                <div>
+                    <h3 style="margin-bottom: 1rem; color: white; display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fas fa-history" style="color: #94a3b8;"></i>
+                        Прошедшие записи (${pastBookings.length})
+                    </h3>
+                    <div style="display: grid; gap: 1rem;">
+                        ${pastBookings.slice(0, 10).map(booking => this.renderBookingCard(booking, true)).join('')}
+                        ${pastBookings.length > 10 ? `<p style="color: #94a3b8; font-size: 0.9rem; margin-top: 0.5rem; text-align: center;">... и еще ${pastBookings.length - 10} записей</p>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        if (upcomingBookings.length === 0 && pastBookings.length === 0) {
+            html = `
+                <div style="margin-bottom: 2rem;">
+                    <h3 style="margin-bottom: 1rem; color: white; display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fas fa-calendar-check" style="color: var(--success-color);"></i>
+                        Все записи (${sortedBookings.length})
+                    </h3>
+                    <div style="display: grid; gap: 1rem;">
+                        ${sortedBookings.map(booking => this.renderBookingCard(booking, false)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        container.innerHTML = html;
+    }
+
+    renderBookingCard(booking, isPast = false) {
+        const bookingDate = new Date(booking.booking_date);
+        const bookingTime = booking.booking_time ? booking.booking_time.substring(0, 5) : '';
+        const statusClass = booking.status === 'cancelled' ? 'cancelled' : booking.status === 'confirmed' ? 'confirmed' : 'pending';
+        const statusText = booking.status === 'cancelled' ? 'Отменена' : booking.status === 'confirmed' ? 'Подтверждена' : 'Ожидает';
+        const clientName = booking.client_name || 'Клиент';
+        const clientEmail = booking.client_email || '';
+        const clientPhone = booking.client_phone || '';
+        
+        // Определяем тип тренировки
+        const trainingType = booking.trainer_id ? 'Индивидуальная тренировка' : 'Тренировка';
+        const paymentMethod = booking.payment_method === 'subscription' ? 'Абонемент' : 
+                             booking.payment_method === 'qr_code' ? 'QR-код' : 
+                             booking.payment_method || 'Не указан';
+        
+        return `
+            <div class="card booking-card client-booking-card ${isPast ? 'past' : ''}" style="padding: 1.5rem;">
+                <div class="client-header" style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--graphite-light);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+                        <h3 style="color: white; margin: 0; font-size: 1.2rem;">${clientName}</h3>
+                        <span class="status-badge ${statusClass}" style="font-size: 0.85rem;">${statusText}</span>
+                    </div>
+                    <div style="display: inline-block; background: rgba(37, 99, 235, 0.2); color: var(--primary-blue); padding: 4px 8px; border-radius: 12px; font-size: 0.85rem; margin-bottom: 0.5rem;">
+                        <i class="fas fa-dumbbell"></i> ${trainingType}
+                    </div>
+                    ${clientEmail ? `
+                        <div class="detail-item" style="margin: 0.25rem 0;">
+                            <i class="fas fa-envelope" style="color: var(--primary-blue);"></i>
+                            <span style="color: #cbd5e1;">${clientEmail}</span>
+                        </div>
+                    ` : ''}
+                    ${clientPhone ? `
+                        <div class="detail-item" style="margin: 0.25rem 0;">
+                            <i class="fas fa-phone" style="color: var(--primary-blue);"></i>
+                            <span style="color: #cbd5e1;">${clientPhone}</span>
+                        </div>
+                    ` : ''}
+                </div>
+                
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <div class="detail-item">
+                        <i class="fas fa-calendar" style="color: var(--primary-blue);"></i>
+                        <span style="color: white; font-weight: 600;">
+                            ${bookingDate.toLocaleDateString('ru-RU', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                        </span>
+                    </div>
+                    ${bookingTime ? `
+                        <div class="detail-item">
+                            <i class="fas fa-clock" style="color: var(--primary-blue);"></i>
+                            <span class="client-booking-time" style="color: var(--primary-blue); font-weight: 600; font-size: 1.1rem;">
+                                Время: ${bookingTime}
+                            </span>
+                        </div>
+                    ` : ''}
+                    <div class="detail-item">
+                        <i class="fas fa-credit-card" style="color: var(--primary-blue);"></i>
+                        <span style="color: #cbd5e1;">Способ оплаты: ${paymentMethod}</span>
+                    </div>
+                </div>
+            </div>
+        `;
     }
 }
 

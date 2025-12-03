@@ -16,5 +16,42 @@ function getDayOfWeek(dateString) {
     return days[date.getDay()];
 }
 
-module.exports = { formatTimeSimply, getDayOfWeek };
+function getNextDateForDayOfWeek(dayOfWeek) {
+    const dayMap = {
+        'monday': 1,
+        'tuesday': 2,
+        'wednesday': 3,
+        'thursday': 4,
+        'friday': 5,
+        'saturday': 6,
+        'sunday': 0
+    };
+
+    const targetDay = dayMap[dayOfWeek.toLowerCase()];
+    if (targetDay === undefined) return null;
+
+    const today = new Date();
+    const currentDay = today.getDay();
+    let daysUntilTarget = targetDay - currentDay;
+
+    // Если день недели уже прошел на этой неделе, берем следующий
+    if (daysUntilTarget < 0) {
+        daysUntilTarget += 7;
+    } else if (daysUntilTarget === 0) {
+        // Если сегодня этот день, проверяем время
+        // Если уже поздно (после 20:00), берем следующий раз
+        const now = new Date();
+        const hours = now.getHours();
+        if (hours >= 20) {
+            daysUntilTarget = 7;
+        }
+    }
+
+    const targetDate = new Date(today);
+    targetDate.setDate(today.getDate() + daysUntilTarget);
+    
+    return targetDate.toISOString().split('T')[0];
+}
+
+module.exports = { formatTimeSimply, getDayOfWeek, getNextDateForDayOfWeek };
 

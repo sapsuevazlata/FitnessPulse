@@ -1,6 +1,7 @@
 const Trainer = require('../models/Trainer');
 const Subscription = require('../models/Subscription');
 const GroupSession = require('../models/GroupSession');
+const TrainerSchedule = require('../models/TrainerSchedule');
 const { formatTimeSimply } = require('../utils/helpers');
 
 const getTrainers = async (req, res) => {
@@ -8,7 +9,6 @@ const getTrainers = async (req, res) => {
         const trainers = await Trainer.getActive();
         res.json({ success: true, trainers });
     } catch (error) {
-        console.error('Ошибка получения тренеров:', error);
         res.status(500).json({ success: false, error: 'Ошибка сервера: ' + error.message });
     }
 };
@@ -22,7 +22,6 @@ const getSubscriptions = async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Ошибка получения абонементов:', error);
         res.status(500).json({ 
             success: false, 
             error: 'Ошибка сервера: ' + error.message 
@@ -43,11 +42,8 @@ const getGroupSessions = async (req, res) => {
             duration: session.duration || 60,
             max_participants: session.max_participants || 10,
             current_participants: session.current_participants || 0,
-            is_active: Boolean(session.is_active),
             trainer_id: session.trainer_id || null,
-            trainer_name: session.trainer_name || 'Тренер',
-            created_at: session.created_at,
-            updated_at: session.updated_at
+            trainer_name: session.trainer_name || 'Тренер'
         }));
         
         res.json({ 
@@ -56,7 +52,6 @@ const getGroupSessions = async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Ошибка получения групповых занятий для клиентов:', error);
         res.status(500).json({ 
             success: false, 
             error: 'Ошибка сервера: ' + error.message
@@ -64,5 +59,31 @@ const getGroupSessions = async (req, res) => {
     }
 };
 
-module.exports = { getTrainers, getSubscriptions, getGroupSessions };
+// Получить расписание тренера (публичный endpoint)
+const getTrainerSchedule = async (req, res) => {
+    try {
+        const { trainer_id } = req.query;
+        
+        if (!trainer_id) {
+            return res.status(400).json({
+                success: false,
+                error: 'Не указан trainer_id'
+            });
+        }
+
+        const schedule = await TrainerSchedule.findByTrainerId(trainer_id);
+        
+        res.json({ 
+            success: true, 
+            schedule: schedule || [] 
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            success: false, 
+            error: 'Ошибка сервера: ' + error.message 
+        });
+    }
+};
+
+module.exports = { getTrainers, getSubscriptions, getGroupSessions, getTrainerSchedule };
 
